@@ -1,18 +1,18 @@
 """
 SwarmGrid-Edge — Fine-Tuning Script
 ====================================
-Fine-tunes Gemma 3n E4B on the Roboflow "Warehouse Obstacle Detection" dataset
-using Unsloth + QLoRA (INT4), converting bounding-box annotations into
+Fine-tunes Gemma 3n E4B-it on the Roboflow "Warehouse Obstacle Detection" dataset
+using HuggingFace + PEFT LoRA, converting bounding-box annotations into
 natural-language hazard captions the vision model learns to produce.
 
 Dataset : https://universe.roboflow.com/test-za-warehouse/warehouse-obstacle-detection
           ~9.9k warehouse images | 14 classes | CC BY 4.0
-Model   : google/gemma-3n-e4b  (fine-tuned → models/finetuned_gemma_warehouse/)
+Model   : google/gemma-3n-E4B-it  (fine-tuned → models/finetuned_gemma_warehouse/)
 
 Usage:
     python models/finetune_gemma_vision.py
 
-Requires:  unsloth  trl  datasets  roboflow  (all in requirements.txt)
+Requires:  transformers  peft  trl  datasets  roboflow  (all in requirements.txt)
            ROBOFLOW_API_KEY and HF_TOKEN must be set in .env
 """
 
@@ -333,7 +333,7 @@ def finetune(base_pairs: list, demo_train_pairs: list, demo_val_pairs: list):
     processor = AutoProcessor.from_pretrained(BASE_MODEL)
     model = AutoModelForImageTextToText.from_pretrained(
         BASE_MODEL,
-        dtype      = torch.bfloat16,
+        torch_dtype = torch.bfloat16,
         device_map  = "auto",
     )
 

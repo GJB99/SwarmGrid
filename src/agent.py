@@ -21,7 +21,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # ─── Config from .env ────────────────────────────────────────────────────────
-VISION_MODEL = os.getenv("VISION_MODEL", "google/gemma-3n-e4b")
+VISION_MODEL = os.getenv("VISION_MODEL", "google/gemma-3n-E4B-it")
 ACTION_MODEL = os.getenv("ACTION_MODEL", "google/gemma-2-270m-it")
 DEVICE_MAP   = os.getenv("DEVICE_MAP", "auto")
 LOAD_IN_4BIT = os.getenv("LOAD_IN_4BIT", "true").lower() == "true"
