@@ -333,7 +333,7 @@ def finetune(base_pairs: list, demo_train_pairs: list, demo_val_pairs: list):
     processor = AutoProcessor.from_pretrained(BASE_MODEL)
     model = AutoModelForImageTextToText.from_pretrained(
         BASE_MODEL,
-        torch_dtype = torch.bfloat16,
+        dtype      = torch.bfloat16,
         device_map  = "auto",
     )
 
@@ -352,13 +352,15 @@ def finetune(base_pairs: list, demo_train_pairs: list, demo_val_pairs: list):
     model.print_trainable_parameters()
 
     # ── Convert pair dicts → tokenized format ────────────────────────────────
+    # Gemma3n processor doesn't support batched image lists; process per-sample
+    # then pad and stack manually.
+    pad_id = processor.tokenizer.pad_token_id
+
     def collate_fn(batch):
-        conversations = []
-        images = []
+        encoded = []
         for sample in batch:
-            img = Image.open(sample["image_path"]).convert("RGB")
-            images.append(img)
-            conversations.append([
+            img  = Image.open(sample["image_path"]).convert("RGB")
+            conv = [
                 {"role": "user", "content": [
                     {"type": "image"},
                     {"type": "text", "text": sample["question"]},
@@ -366,15 +368,35 @@ def finetune(base_pairs: list, demo_train_pairs: list, demo_val_pairs: list):
                 {"role": "assistant", "content": [
                     {"type": "text", "text": sample["answer"]},
                 ]},
-            ])
-        texts = [processor.apply_chat_template(c, tokenize=False) for c in conversations]
-        batch_enc = processor(text=texts, images=images, return_tensors="pt",
-                              padding=True, truncation=True,
-                              max_length=MAX_SEQ_LENGTH)
-        labels = batch_enc["input_ids"].clone()
-        labels[labels == processor.tokenizer.pad_token_id] = -100
-        batch_enc["labels"] = labels
-        return {k: v.to(model.device) for k, v in batch_enc.items()}
+            ]
+            text = processor.apply_chat_template(conv, tokenize=False)
+            enc  = processor(text=text, images=img, return_tensors="pt",
+                             truncation=True, max_length=MAX_SEQ_LENGTH)
+            encoded.append({k: v.squeeze(0) for k, v in enc.items()})
+
+        # Pad each key to the longest sequence in the batch
+        collated = {}
+        for key in encoded[0]:
+            tensors = [e[key] for e in encoded]
+            if tensors[0].dim() == 0:
+                collated[key] = torch.stack(tensors)
+            elif key == "input_ids":
+                collated[key] = torch.nn.utils.rnn.pad_sequence(
+                    tensors, batch_first=True, padding_value=pad_id)
+            elif key == "attention_mask":
+                collated[key] = torch.nn.utils.rnn.pad_sequence(
+                    tensors, batch_first=True, padding_value=0)
+            else:
+                try:
+                    collated[key] = torch.stack(tensors)
+                except Exception:
+                    collated[key] = tensors
+
+        labels = collated["input_ids"].clone()
+        labels[labels == pad_id] = -100
+        collated["labels"] = labels
+        return {k: v.to(model.device) if isinstance(v, torch.Tensor) else v
+                for k, v in collated.items()}
 
     print(f"[TRAIN] Building training dataset ({len(train_pairs)} samples)...")
     hf_train = Dataset.from_list(train_pairs)
