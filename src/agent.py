@@ -14,6 +14,7 @@ from transformers import AutoProcessor, AutoModelForImageTextToText, AutoModelFo
 from PIL import Image
 import json
 import os
+import random
 import time
 import logging
 from dotenv import load_dotenv
@@ -25,6 +26,7 @@ VISION_MODEL = os.getenv("VISION_MODEL", "google/gemma-3n-E4B-it")
 ACTION_MODEL = os.getenv("ACTION_MODEL", "google/gemma-2-2b-it")
 DEVICE_MAP   = os.getenv("DEVICE_MAP", "auto")
 LOAD_IN_4BIT = os.getenv("LOAD_IN_4BIT", "true").lower() == "true"
+MOCK_AGENT   = os.getenv("MOCK_AGENT", "false").lower() == "true"
 
 # Pass HF token to transformers if set
 HF_TOKEN = os.getenv("HF_TOKEN")
@@ -60,6 +62,11 @@ class AutonomousForkliftAgent:
 
         self.cycle_count = 0
 
+        if MOCK_AGENT:
+            logger.info("[INIT] MOCK_AGENT=true — skipping model load, using simulated telemetry.")
+            logger.info("[INIT] Pipeline ready (mock mode).\n")
+            return
+
         # ── Build quantization config ─────────────────────────────────
         bnb_config = BitsAndBytesConfig(load_in_4bit=True) if LOAD_IN_4BIT else None
 
@@ -72,6 +79,24 @@ class AutonomousForkliftAgent:
             torch_dtype=torch.bfloat16,
             quantization_config=bnb_config,
         )
+
+        # ── [HOTFIX] Bypass Gemma3n AltUp 4-bit clamp_ crash ─────────────
+        # Quantization converts weights to uint8, but Gemma3n's `correct` 
+        # method attempts an in-place float clamp_ on the weights during 
+        # the forward pass, causing a PyTorch float-to-uint8 cast error.
+        def make_patched_correct(mod):
+            def patched_correct(predictions, attn_ffw_laurel_gated):
+                return predictions + mod.correction_coefs(attn_ffw_laurel_gated)
+            return patched_correct
+
+        patched_count = 0
+        for name, module in self.vision_model.named_modules():
+            if module.__class__.__name__ == "Gemma3nAltUp":
+                module.correct = make_patched_correct(module)
+                patched_count += 1
+        logger.info(f"[INIT] Patched {patched_count} Gemma3nAltUp modules to bypass clamp_ crash.")
+        # ─────────────────────────────────────────────────────────────────
+
         logger.info("[INIT] Vision model loaded ✓")
 
         # ── 2. Load Gemma 2 2B (Agentic Tool Caller) ────────────────────
@@ -95,6 +120,57 @@ AVAILABLE TOOLS:
         logger.info("[INIT] Agent API surface configured ✓")
         logger.info("[INIT] Pipeline ready. Commencing autonomous monitoring.\n")
 
+    def _mock_cycle(self) -> dict:
+        """Return simulated telemetry for pipeline testing without models."""
+        self.cycle_count += 1
+        scenarios = [
+            {
+                "vision": "Path clear. No obstacles detected. Aisle width ~3m. Safe distance maintained.",
+                "action": {"tool": "maintain_course", "parameters": {"status": "all_clear"}},
+                "voice": "Path clear. Maintaining course.",
+            },
+            {
+                "vision": "Human worker detected at ~7m, moving laterally across aisle. Caution advised.",
+                "action": {"tool": "reduce_speed", "parameters": {"target_mph": 3}},
+                "voice": "Reducing speed to 3 miles per hour. Potential hazard detected.",
+            },
+            {
+                "vision": "Pallet stack partially blocking aisle at ~4m. Immediate stop required.",
+                "action": {"tool": "trigger_ebrake", "parameters": {"reason": "Pallet obstruction", "severity": "high"}},
+                "voice": "Emergency brake activated. Pallet obstruction ahead.",
+            },
+            {
+                "vision": "Forklift Unit-3 detected in Zone B crossroads. Zone congested.",
+                "action": {"tool": "broadcast_reroute", "parameters": {"blocked_zone": "Zone B", "reason": "Peer forklift congestion"}},
+                "voice": "Broadcasting reroute. Zone B is blocked.",
+            },
+        ]
+        s = random.choice(scenarios)
+        v_ms = random.randint(120, 280)
+        a_ms = random.randint(40, 90)
+        return {
+            "cycle_id": self.cycle_count,
+            "timestamp": time.time(),
+            "vision_prompt": "Examine this warehouse path from a forklift dashcam. Are there any physical hazards, humans, or obstacles?",
+            "vision_analysis": s["vision"],
+            "vision_raw_output": s["vision"],
+            "vision_inference_ms": v_ms,
+            "action_prompt_snippet": f"Based on: '{s['vision'][:80]}...' decide action...",
+            "action_raw_output": json.dumps(s["action"]),
+            "action_inference_ms": a_ms,
+            "agent_action": s["action"],
+            "action_parsed_ok": True,
+            "total_inference_ms": v_ms + a_ms,
+            "reasoning_chain": [
+                {"step": 1, "phase": "PERCEPTION", "label": "Sending frame to Gemma 3n E4B vision model..."},
+                {"step": 2, "phase": "PERCEPTION", "label": f"Vision model responded in {v_ms}ms", "detail": s["vision"], "inference_ms": v_ms},
+                {"step": 3, "phase": "AGENCY", "label": "Forwarding threat context to FunctionGemma 270M..."},
+                {"step": 4, "phase": "AGENCY", "label": f"FunctionGemma responded in {a_ms}ms", "detail": json.dumps(s["action"]), "inference_ms": a_ms},
+                {"step": 5, "phase": "ACTUATION", "label": f"Parsed action: {s['action']['tool']}", "detail": json.dumps(s["action"], indent=2), "parsed_ok": True},
+            ],
+            "voice_summary": s["voice"],
+        }
+
     def monitor_assess_act(self, pil_image: Image.Image) -> dict:
         """
         The core continuous autonomous loop — with full reasoning chain.
@@ -108,6 +184,9 @@ AVAILABLE TOOLS:
         - Timing data for each step
         - A human-readable voice summary for TTS
         """
+        if MOCK_AGENT:
+            return self._mock_cycle()
+
         self.cycle_count += 1
         cycle_id = self.cycle_count
         total_start = time.time()

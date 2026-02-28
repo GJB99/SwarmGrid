@@ -16,6 +16,7 @@ from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 import cv2
 import asyncio
+import numpy as np
 
 from PIL import Image
 import json
@@ -105,10 +106,9 @@ def generate_video_frames():
             cap.set(cv2.CAP_PROP_POS_FRAMES, 0)  # Loop video
             continue
 
-        # Ensure uint8 (some codecs output float frames)
-        if frame.dtype != "uint8":
-            import numpy as np
-            frame = np.clip(frame, 0, 255).astype("uint8")
+        # Normalize to uint8 — generated videos often output float frames
+        if frame.dtype != np.uint8:
+            frame = (frame * 255).clip(0, 255).astype(np.uint8) if frame.max() <= 1.0 else frame.clip(0, 255).astype(np.uint8)
         # Encode frame as JPEG
         _, buffer = cv2.imencode(".jpg", frame)
         frame_bytes = buffer.tobytes()
@@ -155,14 +155,14 @@ async def agent_telemetry(websocket: WebSocket):
                 cap.set(cv2.CAP_PROP_POS_FRAMES, 0)  # Loop video
                 continue
 
+            # Normalize to uint8 immediately — generated videos often output float frames
+            if frame.dtype != np.uint8:
+                frame = (frame * 255).clip(0, 255).astype(np.uint8) if frame.max() <= 1.0 else frame.clip(0, 255).astype(np.uint8)
+
             frame_count += 1
 
             # Run AI agent every N frames (configured via AGENT_FRAME_INTERVAL in .env)
             if frame_count % _FRAME_INTERVAL == 0:
-                # Ensure uint8 before color conversion
-                if frame.dtype != "uint8":
-                    import numpy as np
-                    frame = np.clip(frame, 0, 255).astype("uint8")
                 # Convert OpenCV BGR → PIL RGB
                 rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 pil_img = Image.fromarray(rgb_frame)
@@ -193,8 +193,9 @@ async def agent_telemetry(websocket: WebSocket):
 
     except WebSocketDisconnect:
         print("[WS] Client disconnected from telemetry stream.")
-    except Exception as e:
-        print(f"[WS] Connection closed: {e}")
+    except Exception:
+        import traceback
+        logger.error(f"[WS] Exception:\n{traceback.format_exc()}")
     finally:
         cap.release()
 

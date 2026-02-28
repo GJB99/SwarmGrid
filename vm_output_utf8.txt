@@ -1,0 +1,19 @@
+
+--- Running: pkill -f uvicorn ---
+STDERR:
+bash: cannot set terminal process group (-1): Inappropriate ioctl for device
+bash: no job control in this shell
+
+--- Running: nohup bash -c 'cd ~/SwarmGrid && source ~/.bashrc && export PYTHONPATH=. && export MOCK_AGENT=false && uvicorn src.server:app --host 0.0.0.0 --port 8000' > ~/SwarmGrid/nohup.out 2>&1 & ---
+STDERR:
+bash: cannot set terminal process group (58999): Inappropriate ioctl for device
+bash: no job control in this shell
+Usage: uvicorn [OPTIONS] APP
+Try 'uvicorn --help' for help.
+
+Error: Invalid value for '--port': '8000 > ~/SwarmGrid/nohup.out 2>&1 &' is not a valid integer.
+
+--- Running: sleep 5 ---
+STDERR:
+bash: cannot set terminal process group (-1): Inappropriate ioctl for device
+bash: no job control in this shell
