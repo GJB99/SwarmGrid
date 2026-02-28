@@ -10,7 +10,7 @@ Every inference cycle produces a full reasoning chain visible to the UI.
 """
 
 import torch
-from transformers import AutoProcessor, AutoModelForCausalLM
+from transformers import AutoProcessor, AutoModelForCausalLM, BitsAndBytesConfig
 from PIL import Image
 import json
 import os
@@ -60,14 +60,17 @@ class AutonomousForkliftAgent:
 
         self.cycle_count = 0
 
+        # ── Build quantization config ─────────────────────────────────
+        bnb_config = BitsAndBytesConfig(load_in_4bit=True) if LOAD_IN_4BIT else None
+
         # ── 1. Load Fine-Tuned Vision Model (4-bit quantized for Edge) ───
         logger.info(f"[INIT] Loading vision model: {VISION_MODEL} (4bit={LOAD_IN_4BIT})...")
         self.vision_processor = AutoProcessor.from_pretrained(VISION_MODEL)
         self.vision_model = AutoModelForCausalLM.from_pretrained(
             VISION_MODEL,
             device_map=DEVICE_MAP,
-            torch_dtype=torch.float16,
-            load_in_4bit=LOAD_IN_4BIT,
+            dtype=torch.float16,
+            quantization_config=bnb_config,
         )
         logger.info("[INIT] Vision model loaded ✓")
 
@@ -77,7 +80,7 @@ class AutonomousForkliftAgent:
         self.action_model = AutoModelForCausalLM.from_pretrained(
             ACTION_MODEL,
             device_map=DEVICE_MAP,
-            torch_dtype=torch.float16,
+            dtype=torch.float16,
         )
         logger.info("[INIT] Action model loaded ✓")
 

@@ -8,3 +8,8 @@ bitsandbytes
 pillow
 python-multipart
 python-dotenv
+# Fine-tuning
+unsloth
+trl
+datasets
+roboflow
