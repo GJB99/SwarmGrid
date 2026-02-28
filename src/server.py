@@ -64,6 +64,9 @@ INDEX_PATH = os.path.join(SRC_DIR, "index.html")
 agent = AutonomousForkliftAgent()
 inference_lock = threading.Lock()
 
+# Global state for dynamic video switching
+current_video_path = VIDEO_PATH
+
 
 # ─── Routes ──────────────────────────────────────────────────────────────────
 
@@ -86,7 +89,28 @@ async def health_check():
         },
         "edge_mode": True,
         "cloud_dependency": False,
+        "current_video": os.path.basename(current_video_path)
     }
+
+
+@app.get("/api/videos")
+async def list_videos():
+    """List all available dashcam .mp4 files in the data directory."""
+    data_dir = os.path.join(PROJECT_ROOT, "data")
+    videos = [f for f in os.listdir(data_dir) if f.endswith(".mp4")]
+    return {"videos": sorted(videos)}
+
+
+@app.post("/api/select_video")
+async def select_video(filename: str):
+    """Switch the active dashcam video source."""
+    global current_video_path
+    new_path = os.path.join(PROJECT_ROOT, "data", filename)
+    if os.path.exists(new_path):
+        current_video_path = new_path
+        logger.info(f"[VIDEO] Switched source to: {filename}")
+        return {"status": "success", "video": filename}
+    return {"status": "error", "message": "File not found"}
 
 
 # ─── Video Streaming (MJPEG) ────────────────────────────────────────────────
@@ -96,7 +120,9 @@ def generate_video_frames():
     Generator that yields MJPEG frames from the dashcam video.
     Loops the video continuously to simulate a live camera feed.
     """
-    cap = cv2.VideoCapture(VIDEO_PATH)
+    global current_video_path
+    last_path = current_video_path
+    cap = cv2.VideoCapture(last_path)
     if not cap.isOpened():
         print(f"[WARN] Could not open video: {VIDEO_PATH}")
         print("[WARN] Place a dashcam .mp4 file at data/demo_dashcam.mp4")
@@ -104,8 +130,13 @@ def generate_video_frames():
 
     while True:
         ret, frame = cap.read()
-        if not ret:
-            cap.set(cv2.CAP_PROP_POS_FRAMES, 0)  # Loop video
+        if not ret or current_video_path != last_path:
+            if current_video_path != last_path:
+                last_path = current_video_path
+                cap.release()
+                cap = cv2.VideoCapture(last_path)
+            else:
+                cap.set(cv2.CAP_PROP_POS_FRAMES, 0)  # Loop video
             continue
 
         # Normalize to uint8 — generated videos often output float frames
@@ -139,7 +170,9 @@ async def agent_telemetry(websocket: WebSocket):
     the agent's 'thoughts' and JSON tool calls to the UI in real-time.
     """
     await websocket.accept()
-    cap = cv2.VideoCapture(VIDEO_PATH)
+    global current_video_path
+    last_path = current_video_path
+    cap = cv2.VideoCapture(last_path)
     frame_count = 0
 
     if not cap.isOpened():
@@ -153,8 +186,13 @@ async def agent_telemetry(websocket: WebSocket):
     try:
         while cap.isOpened():
             ret, frame = cap.read()
-            if not ret:
-                cap.set(cv2.CAP_PROP_POS_FRAMES, 0)  # Loop video
+            if not ret or current_video_path != last_path:
+                if current_video_path != last_path:
+                    last_path = current_video_path
+                    cap.release()
+                    cap = cv2.VideoCapture(last_path)
+                else:
+                    cap.set(cv2.CAP_PROP_POS_FRAMES, 0)  # Loop video
                 continue
 
             # Normalize to uint8 immediately — generated videos often output float frames
