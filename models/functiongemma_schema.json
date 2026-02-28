@@ -1,0 +1,96 @@
+{
+  "name": "SwarmGrid-Edge Forklift Safety API",
+  "description": "Deterministic tool-calling surface for the autonomous forklift safety agent. FunctionGemma 270M uses this schema to emit structured JSON actions.",
+  "tools": [
+    {
+      "name": "trigger_ebrake",
+      "description": "Immediately engage the forklift emergency brake. Used when a hazard is detected within the 5-meter safety perimeter.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "description": "Human-readable description of the hazard that triggered the brake."
+          },
+          "severity": {
+            "type": "string",
+            "enum": ["critical", "high", "medium"],
+            "description": "Severity classification of the detected hazard."
+          },
+          "distance_meters": {
+            "type": "number",
+            "description": "Estimated distance to the hazard in meters."
+          },
+          "confidence": {
+            "type": "number",
+            "minimum": 0.0,
+            "maximum": 1.0,
+            "description": "Model confidence score for the detection."
+          }
+        },
+        "required": ["reason", "severity"]
+      }
+    },
+    {
+      "name": "reduce_speed",
+      "description": "Reduce forklift speed to a safer velocity. Used when a potential hazard is detected beyond the immediate safety perimeter but within the caution zone (5-10 meters).",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "target_mph": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 10,
+            "description": "Target speed in miles per hour."
+          },
+          "reason": {
+            "type": "string",
+            "description": "Reason for speed reduction."
+          }
+        },
+        "required": ["target_mph"]
+      }
+    },
+    {
+      "name": "maintain_course",
+      "description": "Continue at current speed and heading. Used when the path ahead is clear with no detected hazards.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": ["clear", "monitoring", "caution"],
+            "description": "Current path status assessment."
+          },
+          "visibility_meters": {
+            "type": "number",
+            "description": "Estimated clear visibility distance ahead."
+          }
+        },
+        "required": ["status"]
+      }
+    },
+    {
+      "name": "broadcast_reroute",
+      "description": "Broadcast a reroute signal to the swarm network, instructing nearby forklifts to take an alternate path.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "blocked_zone": {
+            "type": "string",
+            "description": "Identifier or description of the blocked zone."
+          },
+          "reason": {
+            "type": "string",
+            "description": "Reason for the reroute."
+          },
+          "duration_seconds": {
+            "type": "integer",
+            "description": "Estimated duration of the blockage in seconds."
+          }
+        },
+        "required": ["blocked_zone", "reason"]
+      }
+    }
+  ]
+}
