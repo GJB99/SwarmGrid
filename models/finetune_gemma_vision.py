@@ -395,8 +395,7 @@ def finetune(base_pairs: list, demo_train_pairs: list, demo_val_pairs: list):
         labels = collated["input_ids"].clone()
         labels[labels == pad_id] = -100
         collated["labels"] = labels
-        return {k: v.to(model.device) if isinstance(v, torch.Tensor) else v
-                for k, v in collated.items()}
+        return collated
 
     print(f"[TRAIN] Building training dataset ({len(train_pairs)} samples)...")
     hf_train = Dataset.from_list(train_pairs)
