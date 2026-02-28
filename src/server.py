@@ -16,6 +16,7 @@ from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 import cv2
 import asyncio
+
 from PIL import Image
 import json
 import os
@@ -158,8 +159,11 @@ async def agent_telemetry(websocket: WebSocket):
                 rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 pil_img = Image.fromarray(rgb_frame)
 
-                # Run the continuous autonomous loop — produces rich reasoning chain
-                result = agent.monitor_assess_act(pil_img)
+                # Run inference in thread pool so async event loop stays alive
+                loop = asyncio.get_event_loop()
+                result = await loop.run_in_executor(
+                    None, agent.monitor_assess_act, pil_img
+                )
 
                 # Log to server terminal so the demo audience sees live AI reasoning
                 cycle = result.get("cycle_id", "?")
