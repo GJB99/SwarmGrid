@@ -26,7 +26,7 @@ load_dotenv()
 HF_TOKEN       = os.getenv("HF_TOKEN")
 RF_API_KEY     = os.getenv("ROBOFLOW_API_KEY")
 RF_WORKSPACE   = os.getenv("ROBOFLOW_WORKSPACE",  "test-za-warehouse")
-RF_PROJECT     = os.getenv("ROBOFLOW_PROJECT",    "warehouse-obstacle-detection")
+RF_PROJECT     = os.getenv("ROBOFLOW_PROJECT",    "warehouse-obstacle-detection-fbwek")
 RF_VERSION     = int(os.getenv("ROBOFLOW_VERSION", "1"))
 
 BASE_MODEL     = os.getenv("VISION_MODEL", "google/gemma-3n-e4b")
@@ -155,30 +155,28 @@ def annotation_to_caption(annotations: list, img_w: int, img_h: int) -> str:
 
 
 # ─── Step 1: Download dataset from Roboflow ──────────────────────────────────
-def download_dataset():
-    from roboflow import Roboflow
-
-    if not RF_API_KEY or RF_API_KEY == "your_roboflow_api_key_here":
-        raise ValueError(
-            "ROBOFLOW_API_KEY not set in .env\n"
-            "Get your key at: https://app.roboflow.com/settings/api"
+def download_dataset() -> Path:
+    """Bypasses the Roboflow API download and instead expects the user to
+    manually place the dataset in `data/roboflow_dataset`."""
+    coco_train = DATA_DIR / "train" / "_annotations.coco.json"
+    
+    if not coco_train.exists():
+        raise FileNotFoundError(
+            f"\n[DATASET] COCO dataset not found at {DATA_DIR}!\n"
+            "Please manually download the dataset from Roboflow in 'COCO' format,\n"
+            f"extract the ZIP file, and place the contents directly into: {DATA_DIR}\n"
+            "It should look like this:\n"
+            f"  {DATA_DIR}/train/_annotations.coco.json\n"
+            f"  {DATA_DIR}/valid/_annotations.coco.json\n"
         )
-
-    print(f"[DATASET] Connecting to Roboflow...")
-    rf      = Roboflow(api_key=RF_API_KEY)
-    project = rf.workspace(RF_WORKSPACE).project(RF_PROJECT)
-    version = project.version(RF_VERSION)
-
-    print(f"[DATASET] Downloading {RF_PROJECT} v{RF_VERSION} (COCO format)...")
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    version.download("coco", location=str(DATA_DIR))
-    print(f"[DATASET] Downloaded to: {DATA_DIR}")
+    print(f"[DATASET] Found manually downloaded dataset at {DATA_DIR}")
+    return DATA_DIR
 
 
 # ─── Step 2: Parse COCO JSON → instruction-tuning pairs ──────────────────────
-def build_training_pairs(split: str = "train") -> list:
-    coco_json  = DATA_DIR / split / "_annotations.coco.json"
-    images_dir = DATA_DIR / split
+def build_training_pairs(split: str = "train", root: Path = DATA_DIR) -> list:
+    coco_json  = root / split / "_annotations.coco.json"
+    images_dir = root / split
 
     if not coco_json.exists():
         raise FileNotFoundError(f"COCO annotations not found at {coco_json}")
@@ -462,8 +460,8 @@ if __name__ == "__main__":
     print("=" * 60)
 
     # ── 1. Roboflow base dataset ──────────────────────────────────────────────
-    download_dataset()
-    base_pairs = build_training_pairs("train")
+    dataset_root = download_dataset()
+    base_pairs = build_training_pairs("train", root=dataset_root)
     if not base_pairs:
         raise RuntimeError("No base training pairs built — check dataset download.")
 

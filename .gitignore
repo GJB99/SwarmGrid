@@ -24,6 +24,9 @@ models/*.safetensors
 models/finetuned_gemma_warehouse/
 models/outputs/
 
+# Roboflow dataset (large binary, re-download via finetune script)
+data/roboflow_dataset/
+
 # Demo video (binary, place manually)
 data/demo_dashcam.mp4
 data/*.mp4
