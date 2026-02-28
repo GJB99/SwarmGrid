@@ -17,10 +17,10 @@ class Handler(socketserver.BaseRequestHandler):
                 self.request.getpeername(),
             )
         except Exception as e:
-            print(f"Incoming request to {self.chain_host}:{self.chain_port} failed: {e}")
+            print(f"Incoming request to {self.chain_host}:{self.chain_port} failed: {repr(e)}")
             return
         if chan is None:
-            print(f"Incoming request to {self.chain_host}:{self.chain_port} was rejected")
+            print(f"Incoming request to {self.chain_host}:{self.chain_port} was rejected by SSH server")
             return
 
         peer = self.request.getpeername()
@@ -76,7 +76,7 @@ def main():
 
     print("Now forwarding local port 8000 to remote localhost:8000")
     try:
-        forward_tunnel(8000, "127.0.0.1", 8000, client.get_transport())
+        forward_tunnel(8000, "localhost", 8000, client.get_transport())
     except KeyboardInterrupt:
         print("Port forwarding stopped.")
         sys.exit(0)

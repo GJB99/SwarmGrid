@@ -111,9 +111,9 @@
     <div class="grid grid-cols-12 gap-4 flex-1 min-h-0">
 
         <!-- LEFT: Video Feed + Stats -->
-        <div class="col-span-5 flex flex-col gap-3">
+        <div class="col-span-5 flex flex-col gap-3 min-w-0">
             <div id="video-container"
-                 class="border-2 border-teal-800 rounded-lg p-2 relative bg-black flex-1 transition-all duration-200 overflow-hidden">
+                 class="border-2 border-teal-800 rounded-lg p-2 relative bg-black flex-1 overflow-hidden">
                 <h2 class="text-xs text-teal-600 absolute top-3 left-3 z-10 bg-black/70 px-2 py-1 rounded">
                     CAMERA FEED (OFFLINE / EDGE-LOCAL)
                 </h2>
@@ -121,7 +121,7 @@
                 <img id="video-stream"
                      src="/video_feed"
                      alt="Forklift Dashcam Feed"
-                     class="w-full h-full object-cover rounded"
+                     class="w-full h-full object-contain rounded"
                      onerror="this.style.display='none'; document.getElementById('video-placeholder').style.display='flex';">
                 <!-- Fallback when no video is available -->
                 <div id="video-placeholder"
@@ -173,7 +173,7 @@
             </div>
 
             <!-- Live Reasoning Steps -->
-            <div class="flex-1 overflow-y-auto space-y-2" id="reasoning-chain">
+            <div class="flex-1 overflow-y-scroll space-y-2 pr-1" id="reasoning-chain">
                 <div class="text-teal-700 opacity-50 text-xs">Waiting for first inference cycle...</div>
             </div>
 
@@ -221,7 +221,7 @@
             </div>
 
             <!-- Decision Log (visible by default) -->
-            <div class="flex-1 overflow-y-auto space-y-1" id="decision-log">
+            <div class="flex-1 overflow-y-scroll space-y-1 pr-1" id="decision-log">
                 <div class="text-teal-700 opacity-50 text-xs py-4 text-center">Waiting for first agent decision...</div>
             </div>
 

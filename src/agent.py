@@ -71,32 +71,16 @@ class AutonomousForkliftAgent:
         bnb_config = BitsAndBytesConfig(load_in_4bit=True) if LOAD_IN_4BIT else None
 
         # ── 1. Load Fine-Tuned Vision Model ──────────────────────────────
-        logger.info(f"[INIT] Loading vision model: {VISION_MODEL} (4bit={LOAD_IN_4BIT})...")
+        logger.info(f"[INIT] Loading vision model: {VISION_MODEL}...")
         self.vision_processor = AutoProcessor.from_pretrained(VISION_MODEL)
+        
+        # NOTE: Gemma-3n models with AltUp layers are unstable in 4-bit.
+        # We load in bfloat16 to ensure reasoning quality and stability.
         self.vision_model = AutoModelForImageTextToText.from_pretrained(
             VISION_MODEL,
             device_map=DEVICE_MAP,
             torch_dtype=torch.bfloat16,
-            quantization_config=bnb_config,
         )
-
-        # ── [HOTFIX] Bypass Gemma3n AltUp 4-bit clamp_ crash ─────────────
-        # Quantization converts weights to uint8, but Gemma3n's `correct` 
-        # method attempts an in-place float clamp_ on the weights during 
-        # the forward pass, causing a PyTorch float-to-uint8 cast error.
-        def make_patched_correct(mod):
-            def patched_correct(predictions, attn_ffw_laurel_gated):
-                return predictions + mod.correction_coefs(attn_ffw_laurel_gated)
-            return patched_correct
-
-        patched_count = 0
-        for name, module in self.vision_model.named_modules():
-            if module.__class__.__name__ == "Gemma3nTextAltUp":
-                module.correct = make_patched_correct(module)
-                patched_count += 1
-        logger.info(f"[INIT] Patched {patched_count} Gemma3nTextAltUp modules to bypass clamp_ crash.")
-        # ─────────────────────────────────────────────────────────────────
-
         logger.info("[INIT] Vision model loaded ✓")
 
         # ── 2. Load Gemma 2 2B (Agentic Tool Caller) ────────────────────
@@ -271,21 +255,30 @@ AVAILABLE TOOLS:
         logger.info(f"[Cycle {cycle_id}] STEP 2: Sending context to action model")
 
         action_start = time.time()
+        conversation = [
+            {"role": "user", "content": system_prompt}
+        ]
+        text = self.action_processor.apply_chat_template(
+            conversation, tokenize=False, add_generation_prompt=True
+        )
         action_inputs = self.action_processor(
-            system_prompt, return_tensors="pt"
+            text, return_tensors="pt"
         ).to(self.action_model.device)
 
         with torch.no_grad():
             action_outputs = self.action_model.generate(
                 **action_inputs,
                 max_new_tokens=100,
+                do_sample=True,
                 temperature=0.1,
             )
         action_elapsed_ms = round((time.time() - action_start) * 1000)
 
+        # Slice to get only the generated tokens
+        gen_tokens = action_outputs[0][action_inputs["input_ids"].shape[-1]:]
         action_json_str = self.action_processor.decode(
-            action_outputs[0], skip_special_tokens=True
-        )
+            gen_tokens, skip_special_tokens=True
+        ).strip()
 
         logger.info(f"[Cycle {cycle_id}] Action raw output: {action_json_str[:200]}")
         logger.info(f"[Cycle {cycle_id}] Action inference: {action_elapsed_ms}ms")
