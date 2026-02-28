@@ -11,7 +11,8 @@ Everything you need to get the demo running from a fresh clone.
 |------|-------|
 | Python 3.11 | https://www.python.org/downloads/ — tick "Add to PATH" |
 | `uv` (fast package installer) | `pip install uv` in any terminal |
-| NVIDIA GPU (8 GB+ VRAM) | Needed for 4-bit inference. CPU works but is very slow. |
+| NVIDIA GPU (8 GB+ VRAM) | RTX 4080 laptop ✓ — needs CUDA driver 520+ |
+| CUDA driver | Already installed if you have a working NVIDIA driver. Verify: run `nvidia-smi` in terminal |
 | Hugging Face account | https://huggingface.co/join |
 | Git | https://git-scm.com |
 
@@ -29,15 +30,48 @@ cd SwarmGrid
 
 ## Step 2 — Create the Python environment
 
+### 2a — Create the venv
 ```powershell
 python -m venv .venv
 .venv\Scripts\activate
-uv pip install -r requirements.txt
 ```
 
-> **Note:** `unsloth` (fine-tuning only) sometimes needs a CUDA-specific wheel.  
-> If it fails during install, skip it — it is **not needed to run the live demo**.  
-> Run: `uv pip install fastapi uvicorn opencv-python torch transformers accelerate bitsandbytes pillow python-multipart python-dotenv trl datasets roboflow`
+### 2b — Install CUDA PyTorch first (RTX 4080 / CUDA 12.4)
+
+> **Do NOT use `uv pip install -r requirements.txt` for torch** — that gives you CPU-only torch.
+> You must install with the CUDA index URL:
+
+```powershell
+uv pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124
+```
+
+Verify it worked:
+```powershell
+python -c "import torch; print(torch.cuda.is_available())"
+# Should print: True
+```
+
+If you get an error like **"process cannot access the file"** it means something (VS Code, Python) has the old `torch.dll` open. Fix:
+1. Close VS Code completely
+2. Open a plain PowerShell window (not VS Code terminal)
+3. Run the `uv pip install torch...` command above
+4. Reopen VS Code
+
+### 2c — Install everything else
+```powershell
+uv pip install fastapi uvicorn opencv-python transformers accelerate bitsandbytes pillow python-multipart python-dotenv trl datasets roboflow
+```
+
+### 2d — Install Unsloth (fine-tuning only, GPU required)
+
+Unsloth needs to know your CUDA version at install time:
+```powershell
+uv pip install "unsloth[cu124-torch240] @ https://github.com/unslothai/unsloth/releases/download/2025.3/unsloth-2025.3-py3-none-any.whl"
+```
+
+> If that specific URL is outdated, check https://github.com/unslothai/unsloth?tab=readme-ov-file#pip-installation for the latest wheel URL matching your CUDA 12.4 + PyTorch version.
+
+Unsloth is **only needed to run `models/finetune_gemma_vision.py`** — not for the live demo server.
 
 ---
 
@@ -211,20 +245,48 @@ uvicorn src.server:app --port 8001
 
 ---
 
-## Optional: Run the fine-tuning script
+## Step 6 — Run the fine-tuning script
 
-This is for the "we actually trained the model" proof — not required for the live demo.
+This proves the "we actually trained the model" requirement. Uses two data sources with weighted sampling:
+- **Base dataset** (weight 1.0×): ~9,900 Roboflow warehouse images with COCO annotations
+- **Demo frames** (weight 5.0×): your `data/demo_frames/clip1,2,3` JPEGs, auto-labelled
 
-1. Add your Roboflow API key to `.env` (get it at https://app.roboflow.com/settings/api)
-2. Run:
+The 5x weight biases the model toward your exact POV dashcam angle, fluorescent lighting, and specific obstacle appearances.
+
+**Install unsloth first (CUDA torch must already be installed):**
+
 ```powershell
 .venv\Scripts\activate
+uv pip install unsloth
+```
+
+**Prepare demo frames:**  
+Place your extracted JPEG frames into:
+```
+data/demo_frames/clip1/   ← warehouse worker / orange vest
+data/demo_frames/clip2/   ← chemical spill / yellow hazard box
+data/demo_frames/clip3/   ← misaligned pallet scene
+```
+(The script auto-assigns labels per clip — no annotation needed. 10% held out per clip for validation.)
+
+**Add your Roboflow API key** to `.env` (get it at https://app.roboflow.com/settings/api)
+
+**Run:**
+```powershell
 python models/finetune_gemma_vision.py
 ```
-3. It will download the ~9,900-image dataset, build instruction-tuning pairs, then run 60 QLoRA steps (~10 min on an A100, longer on consumer GPU).
-4. The fine-tuned model saves to `models/finetuned_gemma_warehouse/`.
-5. To use it in the demo, update `.env`:
+
+What happens:
+1. Downloads Roboflow warehouse-obstacle-detection dataset (~9.9k images)
+2. Scans demo_frames and builds per-clip VQA pairs
+3. `WeightedRandomSampler` draws 480 training samples (~83% from demo frames)
+4. 60 QLoRA steps (~10 min on RTX 4080, longer on smaller GPU)
+5. Runs per-clip validation — prints accuracy for each clip hazard type
+6. Saves merged 4-bit model to `models/finetuned_gemma_warehouse/`
+
+**Use the fine-tuned model in the demo:**
 ```dotenv
+# In .env:
 VISION_MODEL=models/finetuned_gemma_warehouse
 ```
 

@@ -29,6 +29,7 @@ data/demo_dashcam.mp4
 data/*.mp4
 data/*.avi
 data/*.mov
+data/demo_frames/*/*
 
 # Build / dist
 dist/
@@ -52,3 +53,6 @@ logs/
 
 # Jupyter
 .ipynb_checkpoints/
+
+# Unsloth
+unsloth_compiled_cache/

@@ -1,15 +1,19 @@
 fastapi
 uvicorn
 opencv-python
+# PyTorch — install with CUDA 12.4 wheel (NOT this file directly), see FOLLOW_ME.md:
+# uv pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124
 torch
+torchvision
+torchaudio
 transformers
 accelerate
 bitsandbytes
 pillow
 python-multipart
 python-dotenv
-# Fine-tuning
-unsloth
+# Fine-tuning (GPU required)
+# unsloth — install separately after torch, see FOLLOW_ME.md
 trl
 datasets
 roboflow
