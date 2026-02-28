@@ -22,6 +22,11 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# Disable TorchDynamo before any torch/unsloth import.
+# timm's MobileNetV5 vision tower uses __import__ internally which dynamo
+# cannot trace, causing a hard crash on the first training step.
+os.environ.setdefault("TORCHDYNAMO_DISABLE", "1")
+
 # ─── Config ───────────────────────────────────────────────────────────────────
 HF_TOKEN       = os.getenv("HF_TOKEN")
 RF_API_KEY     = os.getenv("ROBOFLOW_API_KEY")
@@ -29,7 +34,7 @@ RF_WORKSPACE   = os.getenv("ROBOFLOW_WORKSPACE",  "test-za-warehouse")
 RF_PROJECT     = os.getenv("ROBOFLOW_PROJECT",    "warehouse-obstacle-detection-fbwek")
 RF_VERSION     = int(os.getenv("ROBOFLOW_VERSION", "1"))
 
-BASE_MODEL     = os.getenv("VISION_MODEL", "google/gemma-3n-e4b")
+BASE_MODEL     = os.getenv("VISION_MODEL", "google/gemma-3n-E4B-it")
 OUTPUT_DIR     = Path(__file__).parent / "finetuned_gemma_warehouse"
 DATA_DIR       = Path(__file__).parent.parent / "data" / "roboflow_dataset"
 
@@ -133,7 +138,7 @@ def annotation_to_caption(annotations: list, img_w: int, img_h: int) -> str:
         bbox_frac  = (w * h) / img_area
         distance   = estimate_distance(bbox_frac)
         label, severity = HAZARD_MAP.get(
-            class_name, (class_name.replace("_", " ").title(), "medium")
+            class_name, ("Warehouse obstacle", "medium")
         )
         center_x = x + w / 2
         position = ("left side" if center_x < img_w * 0.33
@@ -398,7 +403,8 @@ def finetune(base_pairs: list, demo_train_pairs: list, demo_val_pairs: list):
             warmup_steps                = 5,
             max_steps                   = TRAIN_STEPS,
             learning_rate               = LR,
-            fp16                        = True,
+            fp16                        = False,
+            bf16                        = True,
             logging_steps               = 5,
             save_steps                  = 30,
             eval_steps                  = 30 if hf_val else None,

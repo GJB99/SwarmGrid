@@ -1,7 +1,10 @@
 {
   "permissions": {
     "allow": [
-      "Bash(.venv/Scripts/python -c \"import roboflow; print\\(roboflow.__version__\\)\")"
+      "Bash(.venv/Scripts/python -c \"import roboflow; print\\(roboflow.__version__\\)\")",
+      "Bash(.venv/Scripts/python -c \":*)",
+      "Bash(ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 hackathon@34.56.24.172 \"hostname && nvidia-smi --query-gpu=name,memory.total --format=csv,noheader && python3 --version && which git\")",
+      "Bash(sshpass -p \"e9f20340\" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 hackathon@34.56.24.172 \"hostname && nvidia-smi --query-gpu=name,memory.total --format=csv,noheader && python3 --version && which git\")"
     ]
   }
 }
