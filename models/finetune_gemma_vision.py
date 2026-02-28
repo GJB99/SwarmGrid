@@ -22,11 +22,6 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# Disable TorchDynamo before any torch/unsloth import.
-# timm's MobileNetV5 vision tower uses __import__ internally which dynamo
-# cannot trace, causing a hard crash on the first training step.
-os.environ.setdefault("TORCHDYNAMO_DISABLE", "1")
-
 # ─── Config ───────────────────────────────────────────────────────────────────
 HF_TOKEN       = os.getenv("HF_TOKEN")
 RF_API_KEY     = os.getenv("ROBOFLOW_API_KEY")
@@ -312,18 +307,15 @@ def build_weighted_dataset(base_pairs: list, demo_pairs: list,
     return sampled_pairs
 
 
-# ─── Step 5: Fine-tune with Unsloth + QLoRA ──────────────────────────────────
+# ─── Step 5: Fine-tune with HuggingFace + PEFT LoRA ──────────────────────────
 def finetune(base_pairs: list, demo_train_pairs: list, demo_val_pairs: list):
     """
-    Fine-tunes Gemma 3n E4B using a weighted mix of the Roboflow base dataset
-    and our demo-environment frames. Demo frames are upsampled 5x so the model
-    prioritises our deployment environment's visual style.
-
-    demo_val_pairs is held out entirely from training and used after the final
-    checkpoint to log per-clip hazard identification accuracy.
+    Fine-tunes Gemma 3n E4B-it using standard HuggingFace transformers + PEFT LoRA.
+    No Unsloth required — works on any GPU with enough VRAM.
     """
-    from unsloth import FastLanguageModel
-    from unsloth.trainer import UnslothVisionDataCollator
+    import torch
+    from transformers import AutoProcessor, AutoModelForImageTextToText
+    from peft import LoraConfig, get_peft_model
     from trl import SFTTrainer, SFTConfig
     from datasets import Dataset
     from PIL import Image
@@ -332,75 +324,75 @@ def finetune(base_pairs: list, demo_train_pairs: list, demo_val_pairs: list):
         os.environ["HUGGING_FACE_HUB_TOKEN"] = HF_TOKEN
 
     # ── Build weighted training set ───────────────────────────────────────────
-    # Total samples = TRAIN_STEPS × effective_batch so the sampler fills the
-    # full training run. Demo frames land ~5/(1+5) ≈ 83% of draws when present.
     n_train_samples = TRAIN_STEPS * BATCH_SIZE * GRAD_ACCUM
     train_pairs = build_weighted_dataset(base_pairs, demo_train_pairs,
                                          n_train_samples)
 
-    # ── Load model ────────────────────────────────────────────────────────────
-    print(f"[TRAIN] Loading {BASE_MODEL} with Unsloth (4-bit QLoRA)...")
-    model, tokenizer = FastLanguageModel.from_pretrained(
-        model_name     = BASE_MODEL,
-        max_seq_length = MAX_SEQ_LENGTH,
-        dtype          = None,
-        load_in_4bit   = True,
+    # ── Load model + processor ────────────────────────────────────────────────
+    print(f"[TRAIN] Loading {BASE_MODEL}...")
+    processor = AutoProcessor.from_pretrained(BASE_MODEL)
+    model = AutoModelForImageTextToText.from_pretrained(
+        BASE_MODEL,
+        torch_dtype = torch.bfloat16,
+        device_map  = "auto",
     )
 
-    print(f"[TRAIN] Applying QLoRA adapters (rank={LORA_RANK})...")
-    model = FastLanguageModel.get_peft_model(
-        model,
+    # ── Apply LoRA adapters ───────────────────────────────────────────────────
+    print(f"[TRAIN] Applying LoRA adapters (rank={LORA_RANK})...")
+    lora_cfg = LoraConfig(
         r              = LORA_RANK,
+        lora_alpha     = LORA_RANK,
         target_modules = ["q_proj", "k_proj", "v_proj", "o_proj",
                           "gate_proj", "up_proj", "down_proj"],
-        lora_alpha     = LORA_RANK,
-        lora_dropout   = 0,
+        lora_dropout   = 0.0,
         bias           = "none",
-        use_gradient_checkpointing = "unsloth",
-        random_state   = 42,
+        task_type      = "CAUSAL_LM",
     )
+    model = get_peft_model(model, lora_cfg)
+    model.print_trainable_parameters()
 
-    # ── Convert pair dicts → multimodal conversation format ──────────────────
-    def convert_to_conversation(sample: dict) -> dict:
-        """Formats each sample as a (image, instruction, response) tuple
-        in the chat template Unsloth's vision collator expects."""
-        img = Image.open(sample["image_path"]).convert("RGB")
-        return {
-            "messages": [
-                {"role": "user",      "content": [
-                    {"type": "image", "image": img},
-                    {"type": "text",  "text":  sample["question"]},
+    # ── Convert pair dicts → tokenized format ────────────────────────────────
+    def collate_fn(batch):
+        conversations = []
+        images = []
+        for sample in batch:
+            img = Image.open(sample["image_path"]).convert("RGB")
+            images.append(img)
+            conversations.append([
+                {"role": "user", "content": [
+                    {"type": "image"},
+                    {"type": "text", "text": sample["question"]},
                 ]},
                 {"role": "assistant", "content": [
-                    {"type": "text",  "text":  sample["answer"]},
+                    {"type": "text", "text": sample["answer"]},
                 ]},
-            ]
-        }
+            ])
+        texts = [processor.apply_chat_template(c, tokenize=False) for c in conversations]
+        batch_enc = processor(text=texts, images=images, return_tensors="pt",
+                              padding=True, truncation=True,
+                              max_length=MAX_SEQ_LENGTH)
+        labels = batch_enc["input_ids"].clone()
+        labels[labels == processor.tokenizer.pad_token_id] = -100
+        batch_enc["labels"] = labels
+        return {k: v.to(model.device) for k, v in batch_enc.items()}
 
     print(f"[TRAIN] Building training dataset ({len(train_pairs)} samples)...")
-    hf_train = Dataset.from_list(train_pairs).map(
-        convert_to_conversation, num_proc=1
-    )
+    hf_train = Dataset.from_list(train_pairs)
 
-    # Build validation dataset from held-out demo frames
     hf_val = None
     if demo_val_pairs:
         print(f"[TRAIN] Building validation dataset ({len(demo_val_pairs)} demo frames)...")
-        hf_val = Dataset.from_list(demo_val_pairs).map(
-            convert_to_conversation, num_proc=1
-        )
+        hf_val = Dataset.from_list(demo_val_pairs)
 
     # ── Train ─────────────────────────────────────────────────────────────────
     print(f"[TRAIN] Starting fine-tune ({TRAIN_STEPS} steps)  "
           f"— base weight: 1.0  demo weight: {DEMO_WEIGHT}...")
-    FastLanguageModel.for_training(model)
-
     trainer = SFTTrainer(
         model            = model,
-        tokenizer        = tokenizer,
+        tokenizer        = processor.tokenizer,
         train_dataset    = hf_train,
         eval_dataset     = hf_val,
-        data_collator    = UnslothVisionDataCollator(model, tokenizer),
+        data_collator    = collate_fn,
         args = SFTConfig(
             output_dir                  = str(OUTPUT_DIR / "checkpoints"),
             per_device_train_batch_size = BATCH_SIZE,
@@ -408,13 +400,12 @@ def finetune(base_pairs: list, demo_train_pairs: list, demo_val_pairs: list):
             warmup_steps                = 5,
             max_steps                   = TRAIN_STEPS,
             learning_rate               = LR,
-            fp16                        = False,
             bf16                        = True,
             logging_steps               = 5,
             save_steps                  = 30,
             eval_steps                  = 30 if hf_val else None,
             eval_strategy               = "steps" if hf_val else "no",
-            optim                       = "adamw_8bit",
+            optim                       = "adamw_torch",
             seed                        = 42,
             report_to                   = "none",
             remove_unused_columns       = False,
@@ -428,25 +419,21 @@ def finetune(base_pairs: list, demo_train_pairs: list, demo_val_pairs: list):
     # ── Post-training: quick per-clip validation report ───────────────────────
     if demo_val_pairs:
         print("\n[VAL] Per-clip hazard identification check:")
-        FastLanguageModel.for_inference(model)
-        import torch
-        from PIL import Image as PILImage
+        model.eval()
         clip_results = {}
         for sample in demo_val_pairs:
             clip = sample.get("clip", "unknown")
-            img  = PILImage.open(sample["image_path"]).convert("RGB")
-            inputs = tokenizer.apply_chat_template(
-                [{"role": "user", "content": [
-                    {"type": "image", "image": img},
-                    {"type": "text",  "text":  sample["question"]},
-                ]}],
-                add_generation_prompt=True,
-                return_tensors="pt",
-            ).to(model.device)
+            img  = Image.open(sample["image_path"]).convert("RGB")
+            conversation = [{"role": "user", "content": [
+                {"type": "image"},
+                {"type": "text", "text": sample["question"]},
+            ]}]
+            text = processor.apply_chat_template(conversation, tokenize=False,
+                                                  add_generation_prompt=True)
+            inputs = processor(text=text, images=img, return_tensors="pt").to(model.device)
             with torch.no_grad():
-                out = model.generate(**inputs, max_new_tokens=80, temperature=0.1)
-            pred = tokenizer.decode(out[0], skip_special_tokens=True)
-            # Check whether the expected action keyword appears in the output
+                out = model.generate(**inputs, max_new_tokens=80, do_sample=False)
+            pred = processor.decode(out[0], skip_special_tokens=True)
             expected_action = sample["answer"].split("Action:")[-1].strip().split(".")[0]
             correct = expected_action.lower() in pred.lower()
             clip_results.setdefault(clip, {"correct": 0, "total": 0})
@@ -457,8 +444,9 @@ def finetune(base_pairs: list, demo_train_pairs: list, demo_val_pairs: list):
             print(f"  {clip}: {r['correct']}/{r['total']} correct  ({acc:.0f}%)")
 
     # ── Save ──────────────────────────────────────────────────────────────────
-    print(f"\n[TRAIN] Saving merged model to {OUTPUT_DIR}...")
-    model.save_pretrained_merged(str(OUTPUT_DIR), tokenizer, save_method="merged_4bit")
+    print(f"\n[TRAIN] Saving model to {OUTPUT_DIR}...")
+    model.save_pretrained(str(OUTPUT_DIR))
+    processor.save_pretrained(str(OUTPUT_DIR))
     print(f"[TRAIN] Done → {OUTPUT_DIR}")
     print(f"[TRAIN] Set VISION_MODEL={OUTPUT_DIR} in .env to use in the demo.")
 
