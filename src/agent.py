@@ -10,7 +10,7 @@ Every inference cycle produces a full reasoning chain visible to the UI.
 """
 
 import torch
-from transformers import AutoProcessor, AutoModelForImageTextToText, BitsAndBytesConfig
+from transformers import AutoProcessor, AutoModelForImageTextToText, AutoModelForCausalLM, BitsAndBytesConfig
 from PIL import Image
 import json
 import os
@@ -77,7 +77,7 @@ class AutonomousForkliftAgent:
         # ── 2. Load FunctionGemma 270M (Agentic Tool Caller) ────────────
         logger.info(f"[INIT] Loading action model: {ACTION_MODEL}...")
         self.action_processor = AutoProcessor.from_pretrained(ACTION_MODEL)
-        self.action_model = AutoModelForImageTextToText.from_pretrained(
+        self.action_model = AutoModelForCausalLM.from_pretrained(
             ACTION_MODEL,
             device_map=DEVICE_MAP,
             torch_dtype=torch.float16,
