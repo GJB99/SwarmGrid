@@ -91,10 +91,10 @@ class AutonomousForkliftAgent:
 
         patched_count = 0
         for name, module in self.vision_model.named_modules():
-            if module.__class__.__name__ == "Gemma3nAltUp":
+            if module.__class__.__name__ == "Gemma3nTextAltUp":
                 module.correct = make_patched_correct(module)
                 patched_count += 1
-        logger.info(f"[INIT] Patched {patched_count} Gemma3nAltUp modules to bypass clamp_ crash.")
+        logger.info(f"[INIT] Patched {patched_count} Gemma3nTextAltUp modules to bypass clamp_ crash.")
         # ─────────────────────────────────────────────────────────────────
 
         logger.info("[INIT] Vision model loaded ✓")

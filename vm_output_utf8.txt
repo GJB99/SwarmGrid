@@ -1,19 +1,25 @@
 
---- Running: pkill -f uvicorn ---
-STDERR:
-bash: cannot set terminal process group (-1): Inappropriate ioctl for device
-bash: no job control in this shell
+--- Running: cat ~/SwarmGrid/nohup.out ---
+STDOUT:
+22:34:28 [WARNING] Skipping import of cpp extensions due to incompatible torch version 2.7.1+cu128 for torchao version 0.16.0             Please see https://github.com/pytorch/ao/issues/2919 for more info
+22:34:28 [INFO] ============================================================
+22:34:28 [INFO]   SWARMGRID-EDGE // Booting Edge AI NPU Pipeline...
+22:34:28 [INFO] ============================================================
+22:34:28 [INFO] [INIT] Loading vision model: /home/hackathon/SwarmGrid/models/finetuned_gemma_warehouse (4bit=True)...
+The tokenizer you are loading from '/home/hackathon/SwarmGrid/models/finetuned_gemma_warehouse' with an incorrect regex pattern: https://huggingface.co/mistralai/Mistral-Small-3.1-24B-Instruct-2503/discussions/84#69121093e8b480e709447d5e. This will lead to incorrect tokenization. You should set the `fix_mistral_regex=True` flag when loading this tokenizer to fix this issue.
+`torch_dtype` is deprecated! Use `dtype` instead!
+22:34:31 [INFO] We will use 90% of the memory on device 0 for storing the model, and 10% for the buffer to avoid OOM. You can set `max_memory` in to a higher value to use more memory (at your own risk).
+Loading checkpoint shards:   0%|          | 0/4 [00:00<?, ?it/s]Loading checkpoint shards:  25%|██▌       | 1/4 [00:00<00:01,  1.52it/s]Loading checkpoint shards:  50%|█████     | 2/4 [00:01<00:01,  1.81it/s]Loading checkpoint shards:  75%|███████▌  | 3/4 [00:03<00:01,  1.19s/it]Loading checkpoint shards: 100%|██████████| 4/4 [00:04<00:00,  1.13s/it]Loading checkpoint shards: 100%|██████████| 4/4 [00:04<00:00,  1.03s/it]
+22:34:37 [INFO] [INIT] Patched 35 Gemma3nTextAltUp modules to bypass clamp_ crash.
+22:34:37 [INFO] [INIT] Vision model loaded ✓
+22:34:37 [INFO] [INIT] Loading action model: google/gemma-2-2b-it...
+22:34:38 [INFO] We will use 90% of the memory on device 0 for storing the model, and 10% for the buffer to avoid OOM. You can set `max_memory` in to a higher value to use more memory (at your own risk).
+Loading checkpoint shards:   0%|          | 0/2 [00:00<?, ?it/s]Loading checkpoint shards:  50%|█████     | 1/2 [00:00<00:00,  2.30it/s]Loading checkpoint shards: 100%|██████████| 2/2 [00:00<00:00,  4.38it/s]
+22:34:39 [INFO] [INIT] Action model loaded ✓
+22:34:39 [INFO] [INIT] Agent API surface configured ✓
+22:34:39 [INFO] [INIT] Pipeline ready. Commencing autonomous monitoring.
 
---- Running: nohup bash -c 'cd ~/SwarmGrid && source ~/.bashrc && export PYTHONPATH=. && export MOCK_AGENT=false && uvicorn src.server:app --host 0.0.0.0 --port 8000' > ~/SwarmGrid/nohup.out 2>&1 & ---
-STDERR:
-bash: cannot set terminal process group (58999): Inappropriate ioctl for device
-bash: no job control in this shell
-Usage: uvicorn [OPTIONS] APP
-Try 'uvicorn --help' for help.
-
-Error: Invalid value for '--port': '8000 > ~/SwarmGrid/nohup.out 2>&1 &' is not a valid integer.
-
---- Running: sleep 5 ---
-STDERR:
-bash: cannot set terminal process group (-1): Inappropriate ioctl for device
-bash: no job control in this shell
+INFO:     Started server process [63191]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)

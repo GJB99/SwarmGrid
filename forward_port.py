@@ -23,7 +23,8 @@ class Handler(socketserver.BaseRequestHandler):
             print(f"Incoming request to {self.chain_host}:{self.chain_port} was rejected")
             return
 
-        print(f"Connected!  Tunnel open {self.request.getpeername()} -> {self.chain_host}:{self.chain_port}")
+        peer = self.request.getpeername()
+        print(f"Connected!  Tunnel open {peer} -> {self.chain_host}:{self.chain_port}")
         while True:
             r, w, x = select.select([self.request, chan], [], [])
             if self.request in r:
@@ -36,9 +37,7 @@ class Handler(socketserver.BaseRequestHandler):
                 if len(data) == 0:
                     break
                 self.request.send(data)
-        chan.close()
-        self.request.close()
-        print(f"Tunnel closed from {self.request.getpeername()}")
+        print(f"Tunnel closed from {peer}")
 
 def forward_tunnel(local_port, remote_host, remote_port, transport):
     class SubHander(Handler):
