@@ -1,0 +1,478 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SwarmGrid Edge // Forklift OS</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            background-color: #050505;
+            color: #00ffcc;
+            font-family: 'Courier New', monospace;
+        }
+        /* Scanline effect for industrial feel */
+        .scanline::after {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: repeating-linear-gradient(
+                0deg,
+                transparent,
+                transparent 2px,
+                rgba(0, 255, 204, 0.015) 2px,
+                rgba(0, 255, 204, 0.015) 4px
+            );
+            pointer-events: none;
+        }
+        /* Scrollbar styling */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: #0a0a0a; }
+        ::-webkit-scrollbar-thumb { background: #0d4f4a; border-radius: 3px; }
+        /* E-Brake flash animation */
+        @keyframes ebrake-flash {
+            0%, 100% { box-shadow: 0 0 30px rgba(220, 38, 38, 0.5); border-color: #dc2626; }
+            50% { box-shadow: 0 0 60px rgba(220, 38, 38, 0.8); border-color: #ef4444; }
+        }
+        .ebrake-active {
+            animation: ebrake-flash 0.5s ease-in-out 3;
+        }
+        /* Reasoning chain step animation */
+        @keyframes step-appear {
+            from { opacity: 0; transform: translateX(-10px); }
+            to { opacity: 1; transform: translateX(0); }
+        }
+        .chain-step {
+            animation: step-appear 0.3s ease-out forwards;
+        }
+        /* Voice indicator pulse */
+        @keyframes voice-pulse {
+            0%, 100% { opacity: 0.3; }
+            50% { opacity: 1; }
+        }
+        .voice-active {
+            animation: voice-pulse 0.4s ease-in-out infinite;
+        }
+    </style>
+</head>
+<body class="p-4 h-screen flex flex-col overflow-hidden scanline relative">
+
+    <!-- ── Header ──────────────────────────────────────────────────────── -->
+    <header class="flex justify-between items-center border-b border-teal-900 pb-3 mb-3">
+        <div>
+            <h1 class="text-xl font-bold tracking-wider">SWARMGRID-EDGE // AUTONOMOUS AGENT 004</h1>
+            <p class="text-xs text-teal-700 mt-1">Industrial Forklift Safety System — Vision-Native Edition</p>
+        </div>
+        <div class="flex items-center gap-3">
+            <div class="text-xs text-teal-600">
+                <span id="clock">00:00:00</span>
+            </div>
+            <!-- Voice Toggle -->
+            <button id="voice-toggle" onclick="toggleVoice()" 
+                    class="bg-teal-900/40 px-3 py-1 rounded border border-teal-800 text-sm hover:bg-teal-800/40 transition-colors flex items-center gap-2">
+                <span id="voice-icon">🔊</span>
+                <span id="voice-label" class="text-xs">VOICE: ON</span>
+            </button>
+            <div class="animate-pulse bg-teal-900/40 px-3 py-1 rounded border border-teal-800 text-sm">
+                <span class="inline-block w-2 h-2 bg-teal-400 rounded-full mr-2"></span>LOCAL NPU: ONLINE
+            </div>
+            <div class="bg-red-900/20 px-3 py-1 rounded border border-red-900/50 text-sm text-red-400">
+                <span class="inline-block w-2 h-2 bg-red-500 rounded-full mr-2"></span>CLOUD: DISABLED
+            </div>
+        </div>
+    </header>
+
+    <!-- ── Main Grid: 3-column layout ──────────────────────────────────── -->
+    <div class="grid grid-cols-12 gap-4 flex-1 min-h-0">
+
+        <!-- LEFT: Video Feed + Stats -->
+        <div class="col-span-5 flex flex-col gap-3">
+            <div id="video-container"
+                 class="border-2 border-teal-800 rounded-lg p-2 relative bg-black flex-1 transition-all duration-200 overflow-hidden">
+                <h2 class="text-xs text-teal-600 absolute top-3 left-3 z-10 bg-black/70 px-2 py-1 rounded">
+                    CAMERA FEED (OFFLINE / EDGE-LOCAL)
+                </h2>
+                <!-- MJPEG stream from /video_feed -->
+                <img id="video-stream"
+                     src="/video_feed"
+                     alt="Forklift Dashcam Feed"
+                     class="w-full h-full object-cover rounded"
+                     onerror="this.style.display='none'; document.getElementById('video-placeholder').style.display='flex';">
+                <!-- Fallback when no video is available -->
+                <div id="video-placeholder"
+                     class="w-full h-full bg-gray-900 items-center justify-center border border-gray-800 rounded hidden"
+                     style="display: none;">
+                    <div class="text-center">
+                        <span class="text-gray-600 text-lg">[ NO VIDEO SOURCE ]</span>
+                        <p class="text-gray-700 text-xs mt-2">Place a dashcam .mp4 at data/demo_dashcam.mp4</p>
+                    </div>
+                </div>
+                <!-- Voice speaking indicator overlay -->
+                <div id="voice-indicator" class="absolute bottom-3 right-3 z-10 bg-black/70 px-3 py-1 rounded text-sm hidden">
+                    <span class="text-teal-400 voice-active">🔊</span> <span class="text-teal-500 text-xs">SPEAKING...</span>
+                </div>
+            </div>
+
+            <!-- Stats Bar -->
+            <div class="grid grid-cols-5 gap-2">
+                <div class="bg-gray-900/50 border border-teal-900/50 rounded p-2 text-center">
+                    <div class="text-[10px] text-teal-700">VISION</div>
+                    <div id="stat-vision-ms" class="text-sm font-bold text-teal-400">--ms</div>
+                </div>
+                <div class="bg-gray-900/50 border border-teal-900/50 rounded p-2 text-center">
+                    <div class="text-[10px] text-teal-700">ACTION</div>
+                    <div id="stat-action-ms" class="text-sm font-bold text-teal-400">--ms</div>
+                </div>
+                <div class="bg-gray-900/50 border border-teal-900/50 rounded p-2 text-center">
+                    <div class="text-[10px] text-teal-700">TOTAL</div>
+                    <div id="stat-total-ms" class="text-sm font-bold text-teal-400">--ms</div>
+                </div>
+                <div class="bg-gray-900/50 border border-teal-900/50 rounded p-2 text-center">
+                    <div class="text-[10px] text-teal-700">CYCLES</div>
+                    <div id="stat-frames" class="text-sm font-bold text-teal-400">0</div>
+                </div>
+                <div class="bg-gray-900/50 border border-teal-900/50 rounded p-2 text-center">
+                    <div class="text-[10px] text-teal-700">ALERTS</div>
+                    <div id="stat-alerts" class="text-sm font-bold text-red-400">0</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- CENTER: Agent Reasoning Chain (the "thinking" panel) -->
+        <div class="col-span-4 border border-teal-800 rounded-lg p-3 flex flex-col bg-black/30">
+            <div class="flex justify-between items-center mb-2 border-b border-teal-900 pb-2">
+                <h2 class="text-sm text-teal-600 tracking-wider">AGENT REASONING CHAIN</h2>
+                <div id="status-badge" class="text-xs px-2 py-1 rounded bg-green-900/30 text-green-400 border border-green-900/50">
+                    SAFE
+                </div>
+            </div>
+
+            <!-- Live Reasoning Steps -->
+            <div class="flex-1 overflow-y-auto space-y-2" id="reasoning-chain">
+                <div class="text-teal-700 opacity-50 text-xs">Waiting for first inference cycle...</div>
+            </div>
+
+            <!-- Current Action + Voice -->
+            <div class="mt-2 pt-2 border-t border-teal-900">
+                <div class="text-[10px] text-teal-700 mb-1">CURRENT DECISION:</div>
+                <div id="current-action" class="bg-gray-900/50 p-2 rounded border border-teal-900/30 text-xs font-mono">
+                    <span class="text-gray-600">Awaiting first inference cycle...</span>
+                </div>
+                <div class="mt-2 flex items-center gap-2">
+                    <div class="text-[10px] text-teal-700">VOICE OUTPUT:</div>
+                    <div id="voice-text" class="text-xs text-teal-500 italic truncate flex-1">--</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- RIGHT: Raw Telemetry Log -->
+        <div class="col-span-3 border border-teal-800 rounded-lg p-3 flex flex-col bg-black/30">
+            <div class="flex justify-between items-center mb-2 border-b border-teal-900 pb-2">
+                <h2 class="text-sm text-teal-600 tracking-wider">RAW TELEMETRY</h2>
+                <div class="flex gap-2">
+                    <button onclick="clearLog()" class="text-[10px] text-teal-700 hover:text-teal-400 border border-teal-900 px-2 py-0.5 rounded transition-colors">
+                        CLEAR
+                    </button>
+                    <div id="ws-status" class="text-[10px] px-2 py-0.5 rounded bg-yellow-900/30 text-yellow-500 border border-yellow-900/50">
+                        CONNECTING...
+                    </div>
+                </div>
+            </div>
+
+            <!-- Telemetry Log -->
+            <div class="flex-1 overflow-y-auto space-y-1 text-[11px]" id="telemetry-log">
+                <div class="text-teal-700 opacity-70">> Initializing fine-tuned Gemma 3n E4B (INT4)...</div>
+                <div class="text-teal-700 opacity-70">> Initializing FunctionGemma 270M...</div>
+                <div class="text-teal-700 opacity-70">> Loading warehouse obstacle detection weights...</div>
+                <div class="text-teal-700 opacity-70">> Safety perimeter set: 5 meters</div>
+                <div class="text-teal-700 opacity-70">> Commencing continuous visual scan...</div>
+                <div class="text-teal-700 opacity-70">> Waiting for agent telemetry stream...</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── Footer ──────────────────────────────────────────────────────── -->
+    <footer class="mt-3 pt-2 border-t border-teal-900/50 flex justify-between text-[10px] text-teal-800">
+        <span>SwarmGrid-Edge v1.0 // Gemma 3n E4B + FunctionGemma 270M</span>
+        <span>Zero Cloud — 100% Edge-Local — Sub-50ms Reaction Time</span>
+    </footer>
+
+    <!-- ── JavaScript: WebSocket + UI Logic + TTS Voice ────────────────── -->
+    <script>
+        // ─── State ──────────────────────────────────────────────────────
+        let frameCount = 0;
+        let alertCount = 0;
+        let ws = null;
+        let reconnectAttempts = 0;
+        const MAX_RECONNECT = 10;
+        let voiceEnabled = true;
+        let currentUtterance = null;
+
+        // ─── DOM References ─────────────────────────────────────────────
+        const log = document.getElementById('telemetry-log');
+        const reasoningChain = document.getElementById('reasoning-chain');
+        const videoContainer = document.getElementById('video-container');
+        const wsStatus = document.getElementById('ws-status');
+        const statVisionMs = document.getElementById('stat-vision-ms');
+        const statActionMs = document.getElementById('stat-action-ms');
+        const statTotalMs = document.getElementById('stat-total-ms');
+        const statFrames = document.getElementById('stat-frames');
+        const statAlerts = document.getElementById('stat-alerts');
+        const statusBadge = document.getElementById('status-badge');
+        const currentAction = document.getElementById('current-action');
+        const voiceText = document.getElementById('voice-text');
+        const voiceIndicator = document.getElementById('voice-indicator');
+
+        // ─── Clock ──────────────────────────────────────────────────────
+        setInterval(() => {
+            const now = new Date();
+            document.getElementById('clock').textContent =
+                now.toTimeString().split(' ')[0];
+        }, 1000);
+
+        // ─── Text-to-Speech (Web Speech API) ────────────────────────────
+        const synth = window.speechSynthesis;
+
+        function speak(text) {
+            if (!voiceEnabled || !synth) return;
+            
+            // Cancel any ongoing speech
+            synth.cancel();
+            
+            const utterance = new SpeechSynthesisUtterance(text);
+            utterance.rate = 1.1;     // Slightly faster for urgency
+            utterance.pitch = 0.9;    // Lower pitch for industrial feel
+            utterance.volume = 1.0;
+
+            // Try to pick a good voice
+            const voices = synth.getVoices();
+            const preferred = voices.find(v => v.name.includes('Google') || v.name.includes('Daniel') || v.name.includes('Microsoft'));
+            if (preferred) utterance.voice = preferred;
+
+            utterance.onstart = () => {
+                voiceIndicator.classList.remove('hidden');
+            };
+            utterance.onend = () => {
+                voiceIndicator.classList.add('hidden');
+            };
+
+            synth.speak(utterance);
+        }
+
+        function toggleVoice() {
+            voiceEnabled = !voiceEnabled;
+            document.getElementById('voice-icon').textContent = voiceEnabled ? '🔊' : '🔇';
+            document.getElementById('voice-label').textContent = voiceEnabled ? 'VOICE: ON' : 'VOICE: OFF';
+            if (!voiceEnabled) {
+                synth.cancel();
+                voiceIndicator.classList.add('hidden');
+            }
+        }
+
+        // Pre-load voices (Chrome needs this)
+        if (synth) synth.getVoices();
+        if (synth) synth.onvoiceschanged = () => synth.getVoices();
+
+        // ─── Render Reasoning Chain ─────────────────────────────────────
+        function renderReasoningChain(data) {
+            const chain = data.reasoning_chain || [];
+            reasoningChain.innerHTML = '';
+
+            // Cycle header
+            const header = document.createElement('div');
+            header.className = 'text-teal-600 text-xs font-bold mb-2 border-b border-teal-900/50 pb-1';
+            header.textContent = `━━━ INFERENCE CYCLE #${data.cycle_id || '?'} ━━━`;
+            reasoningChain.appendChild(header);
+
+            chain.forEach((step, i) => {
+                const stepDiv = document.createElement('div');
+                stepDiv.className = 'chain-step';
+                stepDiv.style.animationDelay = `${i * 0.1}s`;
+
+                // Phase color
+                let phaseColor = 'text-blue-400';
+                let phaseBg = 'bg-blue-900/10 border-blue-900/30';
+                if (step.phase === 'AGENCY') { phaseColor = 'text-purple-400'; phaseBg = 'bg-purple-900/10 border-purple-900/30'; }
+                if (step.phase === 'ACTUATION') { phaseColor = 'text-orange-400'; phaseBg = 'bg-orange-900/10 border-orange-900/30'; }
+
+                let html = `
+                    <div class="border ${phaseBg} rounded p-2 mb-1">
+                        <div class="flex items-center gap-2 mb-1">
+                            <span class="text-[10px] ${phaseColor} font-bold px-1 rounded bg-black/30">${step.phase}</span>
+                            <span class="text-xs text-gray-400">${step.label}</span>
+                        </div>
+                `;
+
+                if (step.detail) {
+                    html += `<div class="text-[11px] text-gray-300 pl-2 border-l border-gray-800 ml-1 mt-1">${escapeHtml(step.detail)}</div>`;
+                }
+
+                if (step.inference_ms) {
+                    html += `<div class="text-[10px] text-teal-700 mt-1">⏱ ${step.inference_ms}ms</div>`;
+                }
+
+                if (step.raw_output && step.detail !== step.raw_output) {
+                    html += `<details class="mt-1"><summary class="text-[10px] text-gray-600 cursor-pointer hover:text-gray-400">Raw model output</summary>
+                             <div class="text-[10px] text-gray-500 mt-1 p-1 bg-black/30 rounded max-h-20 overflow-auto">${escapeHtml(step.raw_output)}</div></details>`;
+                }
+
+                html += `</div>`;
+                stepDiv.innerHTML = html;
+                reasoningChain.appendChild(stepDiv);
+            });
+
+            // Add total timing
+            if (data.total_inference_ms) {
+                const total = document.createElement('div');
+                total.className = 'text-xs text-teal-600 mt-2 p-2 bg-teal-900/10 rounded border border-teal-900/30 text-center';
+                total.innerHTML = `Total pipeline: <b>${data.total_inference_ms}ms</b> | Vision: ${data.vision_inference_ms || '--'}ms | Action: ${data.action_inference_ms || '--'}ms`;
+                reasoningChain.appendChild(total);
+            }
+
+            reasoningChain.scrollTop = reasoningChain.scrollHeight;
+        }
+
+        function escapeHtml(str) {
+            const div = document.createElement('div');
+            div.textContent = str;
+            return div.innerHTML;
+        }
+
+        // ─── WebSocket Connection ───────────────────────────────────────
+        function connectWebSocket() {
+            ws = new WebSocket(`ws://${location.host}/ws/agent_telemetry`);
+
+            ws.onopen = () => {
+                reconnectAttempts = 0;
+                wsStatus.textContent = 'LIVE';
+                wsStatus.className = 'text-[10px] px-2 py-0.5 rounded bg-green-900/30 text-green-400 border border-green-900/50';
+                appendLog('> WebSocket connected. Telemetry stream active.', 'text-teal-500');
+                speak('SwarmGrid Edge online. Commencing autonomous visual monitoring.');
+            };
+
+            ws.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                frameCount++;
+
+                // ── Update stats ────────────────────────────────────────
+                statVisionMs.textContent = `${data.vision_inference_ms || '--'}ms`;
+                statActionMs.textContent = `${data.action_inference_ms || '--'}ms`;
+                statTotalMs.textContent = `${data.total_inference_ms || '--'}ms`;
+                statFrames.textContent = data.cycle_id || frameCount;
+
+                // ── Log raw telemetry ───────────────────────────────────
+                appendLog(
+                    `[#${data.cycle_id}] VISION (${data.vision_inference_ms}ms): ${data.vision_analysis}`,
+                    'text-blue-400'
+                );
+
+                // ── Determine action type ───────────────────────────────
+                const action = data.agent_action || {};
+                const isEbrake = action.tool === 'trigger_ebrake';
+                const isReduce = action.tool === 'reduce_speed';
+                const isReroute = action.tool === 'broadcast_reroute';
+
+                let actionClass, statusText, statusBg, statusBorder;
+                if (isEbrake) {
+                    actionClass = 'text-red-500 font-bold bg-red-900/20 p-1 rounded border-l-2 border-red-500';
+                    statusText = '⚠ E-BRAKE';
+                    statusBg = 'bg-red-900/30';
+                    statusBorder = 'border-red-900/50';
+                    alertCount++;
+                    statAlerts.textContent = alertCount;
+                } else if (isReduce) {
+                    actionClass = 'text-yellow-400 bg-yellow-900/10 p-1 rounded';
+                    statusText = 'CAUTION';
+                    statusBg = 'bg-yellow-900/30';
+                    statusBorder = 'border-yellow-900/50';
+                } else if (isReroute) {
+                    actionClass = 'text-orange-400 bg-orange-900/10 p-1 rounded';
+                    statusText = 'REROUTE';
+                    statusBg = 'bg-orange-900/30';
+                    statusBorder = 'border-orange-900/50';
+                } else {
+                    actionClass = 'text-green-400';
+                    statusText = 'SAFE';
+                    statusBg = 'bg-green-900/30';
+                    statusBorder = 'border-green-900/50';
+                }
+
+                // Update status badge
+                statusBadge.textContent = statusText;
+                statusBadge.className = `text-xs px-2 py-1 rounded ${statusBg} ${statusBorder} ${actionClass}`;
+
+                appendLog(
+                    `[#${data.cycle_id}] ACTION (${data.action_inference_ms}ms): ${JSON.stringify(action)}`,
+                    actionClass
+                );
+
+                // ── Update current action display ───────────────────────
+                currentAction.innerHTML = `<span class="${actionClass}">${escapeHtml(JSON.stringify(action, null, 2))}</span>`;
+
+                // ── Render the reasoning chain ──────────────────────────
+                renderReasoningChain(data);
+
+                // ── Voice output (TTS) ──────────────────────────────────
+                const voiceSummary = data.voice_summary || '';
+                voiceText.textContent = voiceSummary;
+
+                // Speak hazards and ebrakes always, otherwise only every 5th cycle
+                if (isEbrake || isReduce || isReroute) {
+                    speak(voiceSummary);
+                } else if (data.cycle_id % 5 === 0) {
+                    speak(voiceSummary);
+                }
+
+                // ── E-Brake visual actuation ────────────────────────────
+                if (isEbrake) {
+                    videoContainer.classList.add('ebrake-active');
+                    videoContainer.classList.replace('border-teal-800', 'border-red-600');
+
+                    setTimeout(() => {
+                        videoContainer.classList.remove('ebrake-active');
+                        videoContainer.classList.replace('border-red-600', 'border-teal-800');
+                    }, 1500);
+                }
+            };
+
+            ws.onclose = () => {
+                wsStatus.textContent = 'OFFLINE';
+                wsStatus.className = 'text-[10px] px-2 py-0.5 rounded bg-red-900/30 text-red-400 border border-red-900/50';
+
+                // Auto-reconnect with backoff
+                if (reconnectAttempts < MAX_RECONNECT) {
+                    reconnectAttempts++;
+                    const delay = Math.min(1000 * reconnectAttempts, 5000);
+                    appendLog(`> Connection lost. Reconnecting in ${delay / 1000}s... (${reconnectAttempts}/${MAX_RECONNECT})`, 'text-yellow-600');
+                    setTimeout(connectWebSocket, delay);
+                }
+            };
+
+            ws.onerror = (err) => {
+                console.error('[WS] Error:', err);
+            };
+        }
+
+        // ─── Helpers ────────────────────────────────────────────────────
+        function appendLog(text, className) {
+            const div = document.createElement('div');
+            div.className = className;
+            div.textContent = text;
+            log.appendChild(div);
+            log.scrollTop = log.scrollHeight;
+
+            // Keep log at a reasonable size
+            while (log.children.length > 200) {
+                log.removeChild(log.firstChild);
+            }
+        }
+
+        function clearLog() {
+            log.innerHTML = '<div class="text-teal-700 opacity-70">> Log cleared. Monitoring continues...</div>';
+        }
+
+        // ─── Initialize ─────────────────────────────────────────────────
+        connectWebSocket();
+    </script>
+</body>
+</html>
