@@ -105,6 +105,10 @@ def generate_video_frames():
             cap.set(cv2.CAP_PROP_POS_FRAMES, 0)  # Loop video
             continue
 
+        # Ensure uint8 (some codecs output float frames)
+        if frame.dtype != "uint8":
+            import numpy as np
+            frame = np.clip(frame, 0, 255).astype("uint8")
         # Encode frame as JPEG
         _, buffer = cv2.imencode(".jpg", frame)
         frame_bytes = buffer.tobytes()
@@ -155,6 +159,10 @@ async def agent_telemetry(websocket: WebSocket):
 
             # Run AI agent every N frames (configured via AGENT_FRAME_INTERVAL in .env)
             if frame_count % _FRAME_INTERVAL == 0:
+                # Ensure uint8 before color conversion
+                if frame.dtype != "uint8":
+                    import numpy as np
+                    frame = np.clip(frame, 0, 255).astype("uint8")
                 # Convert OpenCV BGR → PIL RGB
                 rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 pil_img = Image.fromarray(rgb_frame)
