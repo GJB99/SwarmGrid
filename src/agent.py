@@ -10,7 +10,7 @@ Every inference cycle produces a full reasoning chain visible to the UI.
 """
 
 import torch
-from transformers import AutoProcessor, AutoModelForCausalLM, BitsAndBytesConfig
+from transformers import AutoProcessor, AutoModelForImageTextToText, BitsAndBytesConfig
 from PIL import Image
 import json
 import os
@@ -63,13 +63,13 @@ class AutonomousForkliftAgent:
         # ── Build quantization config ─────────────────────────────────
         bnb_config = BitsAndBytesConfig(load_in_4bit=True) if LOAD_IN_4BIT else None
 
-        # ── 1. Load Fine-Tuned Vision Model (4-bit quantized for Edge) ───
+        # ── 1. Load Fine-Tuned Vision Model ──────────────────────────────
         logger.info(f"[INIT] Loading vision model: {VISION_MODEL} (4bit={LOAD_IN_4BIT})...")
         self.vision_processor = AutoProcessor.from_pretrained(VISION_MODEL)
-        self.vision_model = AutoModelForCausalLM.from_pretrained(
+        self.vision_model = AutoModelForImageTextToText.from_pretrained(
             VISION_MODEL,
             device_map=DEVICE_MAP,
-            dtype=torch.float16,
+            torch_dtype=torch.bfloat16,
             quantization_config=bnb_config,
         )
         logger.info("[INIT] Vision model loaded ✓")
@@ -77,10 +77,10 @@ class AutonomousForkliftAgent:
         # ── 2. Load FunctionGemma 270M (Agentic Tool Caller) ────────────
         logger.info(f"[INIT] Loading action model: {ACTION_MODEL}...")
         self.action_processor = AutoProcessor.from_pretrained(ACTION_MODEL)
-        self.action_model = AutoModelForCausalLM.from_pretrained(
+        self.action_model = AutoModelForImageTextToText.from_pretrained(
             ACTION_MODEL,
             device_map=DEVICE_MAP,
-            dtype=torch.float16,
+            torch_dtype=torch.float16,
         )
         logger.info("[INIT] Action model loaded ✓")
 
@@ -132,8 +132,15 @@ AVAILABLE TOOLS:
         logger.info(f"[Cycle {cycle_id}] Vision prompt: {vision_prompt}")
 
         vision_start = time.time()
+        conversation = [{"role": "user", "content": [
+            {"type": "image"},
+            {"type": "text", "text": vision_prompt},
+        ]}]
+        text = self.vision_processor.apply_chat_template(
+            conversation, tokenize=False, add_generation_prompt=True
+        )
         inputs = self.vision_processor(
-            text=vision_prompt,
+            text=text,
             images=pil_image,
             return_tensors="pt",
         ).to(self.vision_model.device)
@@ -141,15 +148,17 @@ AVAILABLE TOOLS:
         with torch.no_grad():
             vision_outputs = self.vision_model.generate(
                 **inputs,
-                max_new_tokens=50,
+                max_new_tokens=80,
+                do_sample=False,
             )
         vision_elapsed_ms = round((time.time() - vision_start) * 1000)
 
-        vision_context = self.vision_processor.decode(
-            vision_outputs[0], skip_special_tokens=True
-        )
-        # Clean up: extract only the model's generated response
-        hazard_assessment = vision_context.replace(vision_prompt, "").strip()
+        # Decode only the newly generated tokens (not the prompt)
+        gen_tokens = vision_outputs[0][inputs["input_ids"].shape[-1]:]
+        hazard_assessment = self.vision_processor.decode(
+            gen_tokens, skip_special_tokens=True
+        ).strip()
+        vision_context = hazard_assessment  # keep for logging
 
         logger.info(f"[Cycle {cycle_id}] Vision raw output: {vision_context[:200]}")
         logger.info(f"[Cycle {cycle_id}] Hazard assessment: {hazard_assessment}")

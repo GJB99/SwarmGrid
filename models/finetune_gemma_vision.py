@@ -35,7 +35,7 @@ DATA_DIR       = Path(__file__).parent.parent / "data" / "roboflow_dataset"
 
 MAX_SEQ_LENGTH = 2048
 LORA_RANK      = 16
-TRAIN_STEPS    = 60           # quick hackathon fine-tune (~10 min on GPU)
+TRAIN_STEPS    = 200          # quick hackathon fine-tune (~5 min on 96GB GPU)
 BATCH_SIZE     = 2
 GRAD_ACCUM     = 4
 LR             = 2e-4
@@ -464,8 +464,10 @@ def finetune(base_pairs: list, demo_train_pairs: list, demo_val_pairs: list):
             acc = r["correct"] / r["total"] * 100
             print(f"  {clip}: {r['correct']}/{r['total']} correct  ({acc:.0f}%)")
 
-    # ── Save ──────────────────────────────────────────────────────────────────
-    print(f"\n[TRAIN] Saving model to {OUTPUT_DIR}...")
+    # ── Save — merge LoRA into base weights for standalone loading ────────────
+    print(f"\n[TRAIN] Merging LoRA adapters into base weights...")
+    model = model.merge_and_unload()
+    print(f"[TRAIN] Saving merged model to {OUTPUT_DIR}...")
     model.save_pretrained(str(OUTPUT_DIR))
     processor.save_pretrained(str(OUTPUT_DIR))
     print(f"[TRAIN] Done → {OUTPUT_DIR}")
