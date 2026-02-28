@@ -29,7 +29,7 @@ RF_WORKSPACE   = os.getenv("ROBOFLOW_WORKSPACE",  "test-za-warehouse")
 RF_PROJECT     = os.getenv("ROBOFLOW_PROJECT",    "warehouse-obstacle-detection-fbwek")
 RF_VERSION     = int(os.getenv("ROBOFLOW_VERSION", "1"))
 
-BASE_MODEL     = os.getenv("VISION_MODEL", "google/gemma-3n-E4B-it")
+BASE_MODEL     = "google/gemma-3n-E4B-it"   # always fine-tune from the base HF model
 OUTPUT_DIR     = Path(__file__).parent / "finetuned_gemma_warehouse"
 DATA_DIR       = Path(__file__).parent.parent / "data" / "roboflow_dataset"
 
