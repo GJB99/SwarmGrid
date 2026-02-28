@@ -22,6 +22,13 @@ import os
 import sys
 import time
 import logging
+from dotenv import load_dotenv
+
+load_dotenv()
+
+_HOST = os.getenv("HOST", "0.0.0.0")
+_PORT = int(os.getenv("PORT", "8000"))
+_FRAME_INTERVAL = int(os.getenv("AGENT_FRAME_INTERVAL", "15"))
 
 # ─── Logging ─────────────────────────────────────────────────────────────────
 logging.basicConfig(
@@ -45,7 +52,9 @@ app = FastAPI(
 # ─── Paths ───────────────────────────────────────────────────────────────────
 SRC_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(SRC_DIR)
-VIDEO_PATH = os.path.join(PROJECT_ROOT, "data", "demo_dashcam.mp4")
+VIDEO_PATH = os.getenv("VIDEO_PATH") or os.path.join(PROJECT_ROOT, "data", "demo_dashcam.mp4")
+if not os.path.isabs(VIDEO_PATH):
+    VIDEO_PATH = os.path.join(PROJECT_ROOT, VIDEO_PATH)
 INDEX_PATH = os.path.join(SRC_DIR, "index.html")
 
 # ─── Initialize the Agent ───────────────────────────────────────────────────
@@ -143,8 +152,8 @@ async def agent_telemetry(websocket: WebSocket):
 
             frame_count += 1
 
-            # Run AI agent every 15 frames (~2 times per second at 30fps)
-            if frame_count % 15 == 0:
+            # Run AI agent every N frames (configured via AGENT_FRAME_INTERVAL in .env)
+            if frame_count % _FRAME_INTERVAL == 0:
                 # Convert OpenCV BGR → PIL RGB
                 rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 pil_img = Image.fromarray(rgb_frame)
@@ -186,4 +195,4 @@ if __name__ == "__main__":
     print("  SWARMGRID-EDGE // Starting Edge Dashboard Server")
     print("  Open http://localhost:8000 in your browser")
     print("=" * 60 + "\n")
-    uvicorn.run(app, host="0.0.0.0", port=8000, log_level="info")
+    uvicorn.run(app, host=_HOST, port=_PORT, log_level="info")

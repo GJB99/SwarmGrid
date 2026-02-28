@@ -16,6 +16,20 @@ import json
 import os
 import time
 import logging
+from dotenv import load_dotenv
+
+load_dotenv()
+
+# ─── Config from .env ────────────────────────────────────────────────────────
+VISION_MODEL = os.getenv("VISION_MODEL", "google/gemma-3n-e4b")
+ACTION_MODEL = os.getenv("ACTION_MODEL", "google/gemma-2-270m-it")
+DEVICE_MAP   = os.getenv("DEVICE_MAP", "auto")
+LOAD_IN_4BIT = os.getenv("LOAD_IN_4BIT", "true").lower() == "true"
+
+# Pass HF token to transformers if set
+HF_TOKEN = os.getenv("HF_TOKEN")
+if HF_TOKEN and HF_TOKEN != "your_huggingface_token_here":
+    os.environ["HUGGING_FACE_HUB_TOKEN"] = HF_TOKEN
 
 # ─── Logging ─────────────────────────────────────────────────────────────────
 logging.basicConfig(
@@ -47,22 +61,22 @@ class AutonomousForkliftAgent:
         self.cycle_count = 0
 
         # ── 1. Load Fine-Tuned Vision Model (4-bit quantized for Edge) ───
-        logger.info("[INIT] Loading Gemma 3n E4B (INT4 quantized)...")
-        self.vision_processor = AutoProcessor.from_pretrained("google/gemma-3n-e4b")
+        logger.info(f"[INIT] Loading vision model: {VISION_MODEL} (4bit={LOAD_IN_4BIT})...")
+        self.vision_processor = AutoProcessor.from_pretrained(VISION_MODEL)
         self.vision_model = AutoModelForCausalLM.from_pretrained(
-            "google/gemma-3n-e4b",
-            device_map="auto",
+            VISION_MODEL,
+            device_map=DEVICE_MAP,
             torch_dtype=torch.float16,
-            load_in_4bit=True,
+            load_in_4bit=LOAD_IN_4BIT,
         )
         logger.info("[INIT] Vision model loaded ✓")
 
         # ── 2. Load FunctionGemma 270M (Agentic Tool Caller) ────────────
-        logger.info("[INIT] Loading FunctionGemma 270M...")
-        self.action_processor = AutoProcessor.from_pretrained("google/gemma-2-270m-it")
+        logger.info(f"[INIT] Loading action model: {ACTION_MODEL}...")
+        self.action_processor = AutoProcessor.from_pretrained(ACTION_MODEL)
         self.action_model = AutoModelForCausalLM.from_pretrained(
-            "google/gemma-2-270m-it",
-            device_map="auto",
+            ACTION_MODEL,
+            device_map=DEVICE_MAP,
             torch_dtype=torch.float16,
         )
         logger.info("[INIT] Action model loaded ✓")

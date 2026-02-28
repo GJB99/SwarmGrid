@@ -1,0 +1,54 @@
+# Python environments
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+
+# uv
+.uv/
+uv.lock
+
+# Environment variables
+.env
+.env.*
+!.env.example
+
+# Model weights (too large for git)
+models/*.gguf
+models/*.bin
+models/*.safetensors
+models/finetuned_gemma_warehouse/
+models/outputs/
+
+# Demo video (binary, place manually)
+data/demo_dashcam.mp4
+data/*.mp4
+data/*.avi
+data/*.mov
+
+# Build / dist
+dist/
+build/
+*.egg-info/
+
+# IDE
+.vscode/settings.json
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs
+*.log
+logs/
+
+# Jupyter
+.ipynb_checkpoints/

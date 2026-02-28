@@ -7,3 +7,4 @@ accelerate
 bitsandbytes
 pillow
 python-multipart
+python-dotenv
