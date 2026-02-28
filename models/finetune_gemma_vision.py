@@ -161,20 +161,25 @@ def annotation_to_caption(annotations: list, img_w: int, img_h: int) -> str:
 
 # ─── Step 1: Download dataset from Roboflow ──────────────────────────────────
 def download_dataset() -> Path:
-    """Bypasses the Roboflow API download and instead expects the user to
-    manually place the dataset in `data/roboflow_dataset`."""
+    """Downloads the dataset via Roboflow SDK if not already present."""
     coco_train = DATA_DIR / "train" / "_annotations.coco.json"
-    
-    if not coco_train.exists():
-        raise FileNotFoundError(
-            f"\n[DATASET] COCO dataset not found at {DATA_DIR}!\n"
-            "Please manually download the dataset from Roboflow in 'COCO' format,\n"
-            f"extract the ZIP file, and place the contents directly into: {DATA_DIR}\n"
-            "It should look like this:\n"
-            f"  {DATA_DIR}/train/_annotations.coco.json\n"
-            f"  {DATA_DIR}/valid/_annotations.coco.json\n"
-        )
-    print(f"[DATASET] Found manually downloaded dataset at {DATA_DIR}")
+    if coco_train.exists():
+        print(f"[DATASET] Found existing dataset at {DATA_DIR}")
+        return DATA_DIR
+
+    from roboflow import Roboflow
+    if not RF_API_KEY or RF_API_KEY == "your_roboflow_api_key_here":
+        raise ValueError("ROBOFLOW_API_KEY not set in .env")
+
+    print(f"[DATASET] Connecting to Roboflow...")
+    rf      = Roboflow(api_key=RF_API_KEY)
+    project = rf.workspace(RF_WORKSPACE).project(RF_PROJECT)
+    version = project.version(RF_VERSION)
+
+    print(f"[DATASET] Downloading {RF_PROJECT} v{RF_VERSION} (COCO format)...")
+    DATA_DIR.parent.mkdir(parents=True, exist_ok=True)
+    version.download("coco", location=str(DATA_DIR), overwrite=True)
+    print(f"[DATASET] Downloaded to: {DATA_DIR}")
     return DATA_DIR
 
 
