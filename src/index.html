@@ -53,6 +53,31 @@
         .voice-active {
             animation: voice-pulse 0.4s ease-in-out infinite;
         }
+        /* Decision Log timeline entries */
+        @keyframes entry-slide-in {
+            from { opacity: 0; transform: translateY(-8px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .decision-entry {
+            animation: entry-slide-in 0.25s ease-out forwards;
+            border-left: 3px solid #1a1a2e;
+            cursor: pointer;
+            transition: background-color 0.15s;
+        }
+        .decision-entry:hover { background-color: rgba(255,255,255,0.03); }
+        .decision-entry .entry-detail { display: none; }
+        .decision-entry.expanded .entry-detail { display: block; }
+        .severity-critical { border-left-color: #dc2626; }
+        .severity-caution  { border-left-color: #d97706; }
+        .severity-reroute  { border-left-color: #ea580c; }
+        .severity-safe     { border-left-color: #166534; opacity: 0.6; }
+        .severity-safe:hover { opacity: 1; }
+        /* Filter button active state */
+        .filter-btn.active {
+            background-color: rgba(0, 255, 204, 0.15);
+            border-color: #0d9488;
+            color: #00ffcc;
+        }
     </style>
 </head>
 <body class="p-4 h-screen flex flex-col overflow-hidden scanline relative">
@@ -165,22 +190,43 @@
             </div>
         </div>
 
-        <!-- RIGHT: Raw Telemetry Log -->
+        <!-- RIGHT: Decision Log -->
         <div class="col-span-3 border border-teal-800 rounded-lg p-3 flex flex-col bg-black/30">
+            <!-- Tab bar: Decision Log / Raw JSON -->
             <div class="flex justify-between items-center mb-2 border-b border-teal-900 pb-2">
-                <h2 class="text-sm text-teal-600 tracking-wider">RAW TELEMETRY</h2>
-                <div class="flex gap-2">
-                    <button onclick="clearLog()" class="text-[10px] text-teal-700 hover:text-teal-400 border border-teal-900 px-2 py-0.5 rounded transition-colors">
-                        CLEAR
+                <div class="flex items-center gap-3">
+                    <button id="tab-decisions" onclick="switchTab('decisions')" class="text-sm text-teal-400 tracking-wider border-b border-teal-400 pb-0.5">
+                        DECISION LOG
                     </button>
+                    <button id="tab-raw" onclick="switchTab('raw')" class="text-sm text-teal-700 tracking-wider hover:text-teal-500 pb-0.5">
+                        RAW JSON
+                    </button>
+                    <span id="entry-count" class="text-[10px] bg-teal-900/40 text-teal-500 px-1.5 py-0.5 rounded">0</span>
+                </div>
+                <div class="flex gap-2">
                     <div id="ws-status" class="text-[10px] px-2 py-0.5 rounded bg-yellow-900/30 text-yellow-500 border border-yellow-900/50">
                         CONNECTING...
                     </div>
                 </div>
             </div>
 
-            <!-- Telemetry Log -->
-            <div class="flex-1 overflow-y-auto space-y-1 text-[11px]" id="telemetry-log">
+            <!-- Filter buttons (visible in decisions tab) -->
+            <div id="filter-bar" class="flex gap-1.5 mb-2">
+                <button onclick="filterDecisions('all')" class="filter-btn active text-[10px] px-2 py-0.5 rounded border border-teal-900 text-teal-600 hover:text-teal-400 transition-colors">ALL</button>
+                <button onclick="filterDecisions('critical')" class="filter-btn text-[10px] px-2 py-0.5 rounded border border-red-900/50 text-red-700 hover:text-red-400 transition-colors">CRITICAL</button>
+                <button onclick="filterDecisions('caution')" class="filter-btn text-[10px] px-2 py-0.5 rounded border border-yellow-900/50 text-yellow-700 hover:text-yellow-400 transition-colors">CAUTION</button>
+                <button onclick="filterDecisions('safe')" class="filter-btn text-[10px] px-2 py-0.5 rounded border border-green-900/50 text-green-700 hover:text-green-400 transition-colors">SAFE</button>
+                <div class="flex-1"></div>
+                <button onclick="clearDecisionLog()" class="text-[10px] text-teal-700 hover:text-teal-400 border border-teal-900 px-2 py-0.5 rounded transition-colors">CLEAR</button>
+            </div>
+
+            <!-- Decision Log (visible by default) -->
+            <div class="flex-1 overflow-y-auto space-y-1" id="decision-log">
+                <div class="text-teal-700 opacity-50 text-xs py-4 text-center">Waiting for first agent decision...</div>
+            </div>
+
+            <!-- Raw Telemetry (hidden by default) -->
+            <div class="flex-1 overflow-y-auto space-y-1 text-[11px] hidden" id="telemetry-log">
                 <div class="text-teal-700 opacity-70">> Initializing fine-tuned Gemma 3n E4B (INT4)...</div>
                 <div class="text-teal-700 opacity-70">> Initializing FunctionGemma 270M...</div>
                 <div class="text-teal-700 opacity-70">> Loading warehouse obstacle detection weights...</div>
@@ -338,6 +384,173 @@
             return div.innerHTML;
         }
 
+        // ─── Decision Log ────────────────────────────────────────────────
+        const decisionLog = document.getElementById('decision-log');
+        const entryCount = document.getElementById('entry-count');
+        let currentFilter = 'all';
+        let decisionEntries = [];
+        const MAX_DECISIONS = 100;
+
+        function getActionMeta(action) {
+            const tool = (action && action.tool) || 'maintain_course';
+            const params = action?.parameters || {};
+            if (tool === 'trigger_ebrake') return {
+                severity: 'critical', label: 'E-BRAKE',
+                icon: '⛔', textClass: 'text-red-400',
+                reason: params.reason || 'Hazard detected'
+            };
+            if (tool === 'reduce_speed') return {
+                severity: 'caution', label: 'REDUCE SPEED',
+                icon: '⚠️', textClass: 'text-yellow-400',
+                reason: params.reason || `Target ${params.target_mph || '?'} mph`
+            };
+            if (tool === 'broadcast_reroute') return {
+                severity: 'reroute', label: 'REROUTE',
+                icon: '↻', textClass: 'text-orange-400',
+                reason: params.reason || `Zone: ${params.blocked_zone || '?'}`
+            };
+            return {
+                severity: 'safe', label: 'CLEAR',
+                icon: '✓', textClass: 'text-green-500',
+                reason: params.status || 'Path clear'
+            };
+        }
+
+        function formatTime(ts) {
+            const d = ts ? new Date(ts * 1000) : new Date();
+            return d.toTimeString().split(' ')[0];
+        }
+
+        function addDecisionEntry(data) {
+            const action = data.agent_action || {};
+            const meta = getActionMeta(action);
+
+            // Build entry data object
+            const entry = {
+                cycleId: data.cycle_id,
+                timestamp: data.timestamp,
+                severity: meta.severity,
+                label: meta.label,
+                icon: meta.icon,
+                textClass: meta.textClass,
+                reason: meta.reason,
+                vision: data.vision_analysis || '',
+                voiceSummary: data.voice_summary || '',
+                actionJson: JSON.stringify(action, null, 2),
+                visionMs: data.vision_inference_ms,
+                actionMs: data.action_inference_ms,
+                totalMs: data.total_inference_ms
+            };
+
+            decisionEntries.unshift(entry);
+            if (decisionEntries.length > MAX_DECISIONS) decisionEntries.pop();
+
+            renderDecisionEntry(entry, true);
+
+            // Trim DOM
+            while (decisionLog.children.length > MAX_DECISIONS) {
+                decisionLog.removeChild(decisionLog.lastChild);
+            }
+
+            entryCount.textContent = decisionEntries.length;
+        }
+
+        function renderDecisionEntry(entry, prepend) {
+            // Check filter
+            if (currentFilter !== 'all' && entry.severity !== currentFilter) return;
+
+            const el = document.createElement('div');
+            el.className = `decision-entry severity-${entry.severity} rounded p-2 mb-1`;
+            el.setAttribute('data-severity', entry.severity);
+            el.onclick = () => el.classList.toggle('expanded');
+
+            el.innerHTML = `
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center gap-2">
+                        <span class="text-sm">${entry.icon}</span>
+                        <span class="text-[10px] font-bold ${entry.textClass} px-1.5 py-0.5 rounded bg-black/40">${entry.label}</span>
+                        <span class="text-[11px] text-gray-400 truncate max-w-[140px]">${escapeHtml(entry.reason)}</span>
+                    </div>
+                    <div class="flex items-center gap-2 shrink-0">
+                        <span class="text-[10px] text-teal-700">${entry.totalMs || '--'}ms</span>
+                        <span class="text-[10px] text-gray-600">#${entry.cycleId || '?'}</span>
+                        <span class="text-[10px] text-gray-600">${formatTime(entry.timestamp)}</span>
+                    </div>
+                </div>
+                <div class="entry-detail mt-2 pl-5 space-y-1.5 text-[11px] border-t border-gray-800/50 pt-2">
+                    <div>
+                        <span class="text-teal-700">VISION:</span>
+                        <span class="text-gray-400">${escapeHtml(entry.vision)}</span>
+                    </div>
+                    <div>
+                        <span class="text-teal-700">VOICE:</span>
+                        <span class="text-teal-500 italic">${escapeHtml(entry.voiceSummary)}</span>
+                    </div>
+                    <div>
+                        <span class="text-teal-700">TIMING:</span>
+                        <span class="text-gray-500">Vision ${entry.visionMs || '--'}ms · Action ${entry.actionMs || '--'}ms · Total ${entry.totalMs || '--'}ms</span>
+                    </div>
+                    <details class="mt-1">
+                        <summary class="text-[10px] text-gray-600 cursor-pointer hover:text-gray-400">Raw action JSON</summary>
+                        <pre class="text-[10px] text-gray-500 mt-1 p-1.5 bg-black/40 rounded overflow-auto max-h-24">${escapeHtml(entry.actionJson)}</pre>
+                    </details>
+                </div>
+            `;
+
+            // Remove placeholder if it exists
+            const placeholder = decisionLog.querySelector('.text-center');
+            if (placeholder) placeholder.remove();
+
+            if (prepend) {
+                decisionLog.prepend(el);
+            } else {
+                decisionLog.appendChild(el);
+            }
+        }
+
+        function filterDecisions(level) {
+            currentFilter = level;
+            // Update active button
+            document.querySelectorAll('.filter-btn').forEach(btn => {
+                btn.classList.toggle('active', btn.textContent.trim().toLowerCase() === level);
+            });
+            // Re-render
+            decisionLog.innerHTML = '';
+            const filtered = level === 'all' ? decisionEntries : decisionEntries.filter(e => e.severity === level);
+            if (filtered.length === 0) {
+                decisionLog.innerHTML = '<div class="text-teal-700 opacity-50 text-xs py-4 text-center">No entries match this filter.</div>';
+            } else {
+                filtered.forEach(e => renderDecisionEntry(e, false));
+            }
+        }
+
+        function clearDecisionLog() {
+            decisionEntries = [];
+            decisionLog.innerHTML = '<div class="text-teal-700 opacity-50 text-xs py-4 text-center">Log cleared. Waiting for next decision...</div>';
+            entryCount.textContent = '0';
+        }
+
+        // ─── Tab Switching (Decision Log / Raw JSON) ─────────────────────
+        function switchTab(tab) {
+            const tabDecisions = document.getElementById('tab-decisions');
+            const tabRaw = document.getElementById('tab-raw');
+            const filterBar = document.getElementById('filter-bar');
+
+            if (tab === 'decisions') {
+                decisionLog.classList.remove('hidden');
+                document.getElementById('telemetry-log').classList.add('hidden');
+                filterBar.classList.remove('hidden');
+                tabDecisions.className = 'text-sm text-teal-400 tracking-wider border-b border-teal-400 pb-0.5';
+                tabRaw.className = 'text-sm text-teal-700 tracking-wider hover:text-teal-500 pb-0.5';
+            } else {
+                decisionLog.classList.add('hidden');
+                document.getElementById('telemetry-log').classList.remove('hidden');
+                filterBar.classList.add('hidden');
+                tabDecisions.className = 'text-sm text-teal-700 tracking-wider hover:text-teal-500 pb-0.5';
+                tabRaw.className = 'text-sm text-teal-400 tracking-wider border-b border-teal-400 pb-0.5';
+            }
+        }
+
         // ─── WebSocket Connection ───────────────────────────────────────
         function connectWebSocket() {
             ws = new WebSocket(`ws://${location.host}/ws/agent_telemetry`);
@@ -411,6 +624,9 @@
 
                 // ── Render the reasoning chain ──────────────────────────
                 renderReasoningChain(data);
+
+                // ── Add to Decision Log ──────────────────────────────────
+                addDecisionEntry(data);
 
                 // ── Voice output (TTS) ──────────────────────────────────
                 const voiceSummary = data.voice_summary || '';
