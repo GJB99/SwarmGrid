@@ -55,11 +55,9 @@ app = FastAPI(
 # ─── Paths ───────────────────────────────────────────────────────────────────
 SRC_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(SRC_DIR)
-VIDEO_PLAYLIST = [
-    os.path.join(PROJECT_ROOT, "data", "Forklift_Stops_Before_Obstruction.mp4"),
-    os.path.join(PROJECT_ROOT, "data", "Forklift_Stops_Before_Chemical_Spill.mp4"),
-    os.path.join(PROJECT_ROOT, "data", "Forklift_Dashcam_Footage_Generated.mp4")
-]
+VIDEO_PATH = os.getenv("VIDEO_PATH") or os.path.join(PROJECT_ROOT, "data", "demo_dashcam.mp4")
+if not os.path.isabs(VIDEO_PATH):
+    VIDEO_PATH = os.path.join(PROJECT_ROOT, VIDEO_PATH)
 INDEX_PATH = os.path.join(SRC_DIR, "index.html")
 
 # ─── Initialize the Agent ───────────────────────────────────────────────────
@@ -96,41 +94,31 @@ async def health_check():
 def generate_video_frames():
     """
     Generator that yields MJPEG frames from the dashcam video.
-    Alternates through the VIDEO_PLAYLIST sequentially.
+    Loops the video continuously to simulate a live camera feed.
     """
-    playlist_idx = 0
+    cap = cv2.VideoCapture(VIDEO_PATH)
+    if not cap.isOpened():
+        print(f"[WARN] Could not open video: {VIDEO_PATH}")
+        print("[WARN] Place a dashcam .mp4 file at data/demo_dashcam.mp4")
+        return
+
     while True:
-        video_path = VIDEO_PLAYLIST[playlist_idx]
-        cap = cv2.VideoCapture(video_path)
-        
-        if not cap.isOpened():
-            logger.warning(f"[WARN] Could not open video: {video_path}")
-            playlist_idx = (playlist_idx + 1) % len(VIDEO_PLAYLIST)
-            time.sleep(1)
+        ret, frame = cap.read()
+        if not ret:
+            cap.set(cv2.CAP_PROP_POS_FRAMES, 0)  # Loop video
             continue
 
-        logger.info(f"[STREAM] Playing: {os.path.basename(video_path)}")
+        # Normalize to uint8 — generated videos often output float frames
+        if frame.dtype != np.uint8:
+            frame = (frame * 255).clip(0, 255).astype(np.uint8) if frame.max() <= 1.0 else frame.clip(0, 255).astype(np.uint8)
+        # Encode frame as JPEG
+        _, buffer = cv2.imencode(".jpg", frame)
+        frame_bytes = buffer.tobytes()
 
-        while True:
-            ret, frame = cap.read()
-            if not ret:
-                break # Video ended, move to next in playlist
-
-            # Normalize to uint8
-            if frame.dtype != np.uint8:
-                frame = (frame * 255).clip(0, 255).astype(np.uint8) if frame.max() <= 1.0 else frame.clip(0, 255).astype(np.uint8)
-            
-            # Encode frame as JPEG
-            _, buffer = cv2.imencode(".jpg", frame)
-            frame_bytes = buffer.tobytes()
-
-            yield (
-                b"--frame\r\n"
-                b"Content-Type: image/jpeg\r\n\r\n" + frame_bytes + b"\r\n"
-            )
-        
-        cap.release()
-        playlist_idx = (playlist_idx + 1) % len(VIDEO_PLAYLIST)
+        yield (
+            b"--frame\r\n"
+            b"Content-Type: image/jpeg\r\n\r\n" + frame_bytes + b"\r\n"
+        )
 
 
 @app.get("/video_feed")
@@ -149,68 +137,74 @@ async def agent_telemetry(websocket: WebSocket):
     """
     Runs the autonomous monitor→assess→act loop and streams
     the agent's 'thoughts' and JSON tool calls to the UI in real-time.
-    Alternates through the VIDEO_PLAYLIST.
     """
     await websocket.accept()
-    playlist_idx = 0
+    cap = cv2.VideoCapture(VIDEO_PATH)
     frame_count = 0
 
+    if not cap.isOpened():
+        await websocket.send_text(json.dumps({
+            "vision_analysis": "ERROR: No video source found at data/demo_dashcam.mp4",
+            "agent_action": {"tool": "maintain_course", "parameters": {"status": "no_video"}},
+        }))
+        await websocket.close()
+        return
+
     try:
-        while True:
-            video_path = VIDEO_PLAYLIST[playlist_idx]
-            cap = cv2.VideoCapture(video_path)
-            
-            if not cap.isOpened():
-                await websocket.send_text(json.dumps({
-                    "vision_analysis": f"ERROR: Could not load {os.path.basename(video_path)}",
-                    "agent_action": {"tool": "maintain_course", "parameters": {"status": "io_error"}},
-                }))
-                playlist_idx = (playlist_idx + 1) % len(VIDEO_PLAYLIST)
-                await asyncio.sleep(2)
+        while cap.isOpened():
+            ret, frame = cap.read()
+            if not ret:
+                cap.set(cv2.CAP_PROP_POS_FRAMES, 0)  # Loop video
                 continue
 
-            while cap.isOpened():
-                ret, frame = cap.read()
-                if not ret:
-                    break # Next video
+            # Normalize to uint8 immediately — generated videos often output float frames
+            if frame.dtype != np.uint8:
+                frame = (frame * 255).clip(0, 255).astype(np.uint8) if frame.max() <= 1.0 else frame.clip(0, 255).astype(np.uint8)
 
-                # Normalize uint8
-                if frame.dtype != np.uint8:
-                    frame = (frame * 255).clip(0, 255).astype(np.uint8) if frame.max() <= 1.0 else frame.clip(0, 255).astype(np.uint8)
+            frame_count += 1
 
-                frame_count += 1
+            # Run AI agent every N frames (configured via AGENT_FRAME_INTERVAL in .env)
+            if frame_count % _FRAME_INTERVAL == 0:
+                # Convert OpenCV BGR → PIL RGB
+                rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                pil_img = Image.fromarray(rgb_frame)
 
-                if frame_count % _FRAME_INTERVAL == 0:
-                    rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                    pil_img = Image.fromarray(rgb_frame)
+                # Run inference in thread pool so async event loop stays alive
+                # We use a Lock to ensure only one inference runs at a time on the GPU
+                def locked_inference(img):
+                    with inference_lock:
+                        return agent.monitor_assess_act(img)
 
-                    def locked_inference(img):
-                        with inference_lock:
-                            return agent.monitor_assess_act(img)
+                loop = asyncio.get_event_loop()
+                result = await loop.run_in_executor(
+                    None, locked_inference, pil_img
+                )
 
-                    loop = asyncio.get_event_loop()
-                    result = await loop.run_in_executor(None, locked_inference, pil_img)
+                # Log to server terminal so the demo audience sees live AI reasoning
+                cycle = result.get("cycle_id", "?")
+                tool = result.get("agent_action", {}).get("tool", "?")
+                v_ms = result.get("vision_inference_ms", "?")
+                a_ms = result.get("action_inference_ms", "?")
+                t_ms = result.get("total_inference_ms", "?")
+                logger.info(f"━━━ Cycle #{cycle} ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                logger.info(f"  👁️  Vision ({v_ms}ms): {result.get('vision_analysis', '')[:120]}")
+                logger.info(f"  🤖 Action ({a_ms}ms): {tool} → {json.dumps(result.get('agent_action', {}))}")
+                logger.info(f"  🔊 Voice: {result.get('voice_summary', '')}")
+                logger.info(f"  ⏱️  Total: {t_ms}ms")
 
-                    # Augment result with current video source for UI visibility
-                    result["video_source"] = os.path.basename(video_path)
+                # Send full telemetry payload to the UI (includes reasoning chain + voice)
+                await websocket.send_text(json.dumps(result, default=str))
 
-                    # Logging
-                    cycle = result.get("cycle_id", "?")
-                    logger.info(f"━━━ Cycle #{cycle} [{result['video_source']}] ━━━━━━━━━━━━━━━━━━━━━━━━")
-                    logger.info(f"  👁️  Vision: {result.get('vision_analysis', '')[:120]}")
-                    
-                    await websocket.send_text(json.dumps(result, default=str))
-
-                await asyncio.sleep(0.03)
-            
-            cap.release()
-            playlist_idx = (playlist_idx + 1) % len(VIDEO_PLAYLIST)
+            # Simulate ~30fps video playback timing
+            await asyncio.sleep(0.03)
 
     except WebSocketDisconnect:
-        print("[WS] Client disconnected.")
+        print("[WS] Client disconnected from telemetry stream.")
     except Exception:
         import traceback
         logger.error(f"[WS] Exception:\n{traceback.format_exc()}")
+    finally:
+        cap.release()
 
 
 # ─── Entry Point ─────────────────────────────────────────────────────────────

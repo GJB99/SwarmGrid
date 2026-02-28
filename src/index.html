@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -11,67 +12,143 @@
             color: #00ffcc;
             font-family: 'Courier New', monospace;
         }
+
         /* Scanline effect for industrial feel */
         .scanline::after {
             content: '';
             position: absolute;
-            top: 0; left: 0; right: 0; bottom: 0;
-            background: repeating-linear-gradient(
-                0deg,
-                transparent,
-                transparent 2px,
-                rgba(0, 255, 204, 0.015) 2px,
-                rgba(0, 255, 204, 0.015) 4px
-            );
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: repeating-linear-gradient(0deg,
+                    transparent,
+                    transparent 2px,
+                    rgba(0, 255, 204, 0.015) 2px,
+                    rgba(0, 255, 204, 0.015) 4px);
             pointer-events: none;
         }
+
         /* Scrollbar styling */
-        ::-webkit-scrollbar { width: 6px; }
-        ::-webkit-scrollbar-track { background: #0a0a0a; }
-        ::-webkit-scrollbar-thumb { background: #0d4f4a; border-radius: 3px; }
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: #0a0a0a;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: #0d4f4a;
+            border-radius: 3px;
+        }
+
         /* E-Brake flash animation */
         @keyframes ebrake-flash {
-            0%, 100% { box-shadow: 0 0 30px rgba(220, 38, 38, 0.5); border-color: #dc2626; }
-            50% { box-shadow: 0 0 60px rgba(220, 38, 38, 0.8); border-color: #ef4444; }
+
+            0%,
+            100% {
+                box-shadow: 0 0 30px rgba(220, 38, 38, 0.5);
+                border-color: #dc2626;
+            }
+
+            50% {
+                box-shadow: 0 0 60px rgba(220, 38, 38, 0.8);
+                border-color: #ef4444;
+            }
         }
+
         .ebrake-active {
             animation: ebrake-flash 0.5s ease-in-out 3;
         }
+
         /* Reasoning chain step animation */
         @keyframes step-appear {
-            from { opacity: 0; transform: translateX(-10px); }
-            to { opacity: 1; transform: translateX(0); }
+            from {
+                opacity: 0;
+                transform: translateX(-10px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateX(0);
+            }
         }
+
         .chain-step {
             animation: step-appear 0.3s ease-out forwards;
         }
+
         /* Voice indicator pulse */
         @keyframes voice-pulse {
-            0%, 100% { opacity: 0.3; }
-            50% { opacity: 1; }
+
+            0%,
+            100% {
+                opacity: 0.3;
+            }
+
+            50% {
+                opacity: 1;
+            }
         }
+
         .voice-active {
             animation: voice-pulse 0.4s ease-in-out infinite;
         }
+
         /* Decision Log timeline entries */
         @keyframes entry-slide-in {
-            from { opacity: 0; transform: translateY(-8px); }
-            to { opacity: 1; transform: translateY(0); }
+            from {
+                opacity: 0;
+                transform: translateY(-8px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
         }
+
         .decision-entry {
             animation: entry-slide-in 0.25s ease-out forwards;
             border-left: 3px solid #1a1a2e;
             cursor: pointer;
             transition: background-color 0.15s;
         }
-        .decision-entry:hover { background-color: rgba(255,255,255,0.03); }
-        .decision-entry .entry-detail { display: none; }
-        .decision-entry.expanded .entry-detail { display: block; }
-        .severity-critical { border-left-color: #dc2626; }
-        .severity-caution  { border-left-color: #d97706; }
-        .severity-reroute  { border-left-color: #ea580c; }
-        .severity-safe     { border-left-color: #166534; opacity: 0.6; }
-        .severity-safe:hover { opacity: 1; }
+
+        .decision-entry:hover {
+            background-color: rgba(255, 255, 255, 0.03);
+        }
+
+        .decision-entry .entry-detail {
+            display: none;
+        }
+
+        .decision-entry.expanded .entry-detail {
+            display: block;
+        }
+
+        .severity-critical {
+            border-left-color: #dc2626;
+        }
+
+        .severity-caution {
+            border-left-color: #d97706;
+        }
+
+        .severity-reroute {
+            border-left-color: #ea580c;
+        }
+
+        .severity-safe {
+            border-left-color: #166534;
+            opacity: 0.6;
+        }
+
+        .severity-safe:hover {
+            opacity: 1;
+        }
+
         /* Filter button active state */
         .filter-btn.active {
             background-color: rgba(0, 255, 204, 0.15);
@@ -80,6 +157,7 @@
         }
     </style>
 </head>
+
 <body class="p-4 h-screen flex flex-col overflow-hidden scanline relative">
 
     <!-- ── Header ──────────────────────────────────────────────────────── -->
@@ -93,8 +171,8 @@
                 <span id="clock">00:00:00</span>
             </div>
             <!-- Voice Toggle -->
-            <button id="voice-toggle" onclick="toggleVoice()" 
-                    class="bg-teal-900/40 px-3 py-1 rounded border border-teal-800 text-sm hover:bg-teal-800/40 transition-colors flex items-center gap-2">
+            <button id="voice-toggle" onclick="toggleVoice()"
+                class="bg-teal-900/40 px-3 py-1 rounded border border-teal-800 text-sm hover:bg-teal-800/40 transition-colors flex items-center gap-2">
                 <span id="voice-icon">🔊</span>
                 <span id="voice-label" class="text-xs">VOICE: ON</span>
             </button>
@@ -113,28 +191,28 @@
         <!-- LEFT: Video Feed + Stats -->
         <div class="col-span-5 flex flex-col gap-3 min-w-0">
             <div id="video-container"
-                 class="border-2 border-teal-800 rounded-lg p-2 relative bg-black flex-1 overflow-hidden">
+                class="border-2 border-teal-800 rounded-lg p-2 relative bg-black flex-1 overflow-hidden">
                 <h2 class="text-xs text-teal-600 absolute top-3 left-3 z-10 bg-black/70 px-2 py-1 rounded">
                     CAMERA FEED (OFFLINE / EDGE-LOCAL)
                 </h2>
                 <!-- MJPEG stream from /video_feed -->
-                <img id="video-stream"
-                     src="/video_feed"
-                     alt="Forklift Dashcam Feed"
-                     class="w-full h-full object-contain rounded"
-                     onerror="this.style.display='none'; document.getElementById('video-placeholder').style.display='flex';">
+                <img id="video-stream" src="/video_feed" alt="Forklift Dashcam Feed"
+                    class="w-full h-full object-contain rounded"
+                    onerror="this.style.display='none'; document.getElementById('video-placeholder').style.display='flex';">
                 <!-- Fallback when no video is available -->
                 <div id="video-placeholder"
-                     class="w-full h-full bg-gray-900 items-center justify-center border border-gray-800 rounded hidden"
-                     style="display: none;">
+                    class="w-full h-full bg-gray-900 items-center justify-center border border-gray-800 rounded hidden"
+                    style="display: none;">
                     <div class="text-center">
                         <span class="text-gray-600 text-lg">[ NO VIDEO SOURCE ]</span>
                         <p class="text-gray-700 text-xs mt-2">Place a dashcam .mp4 at data/demo_dashcam.mp4</p>
                     </div>
                 </div>
                 <!-- Voice speaking indicator overlay -->
-                <div id="voice-indicator" class="absolute bottom-3 right-3 z-10 bg-black/70 px-3 py-1 rounded text-sm hidden">
-                    <span class="text-teal-400 voice-active">🔊</span> <span class="text-teal-500 text-xs">SPEAKING...</span>
+                <div id="voice-indicator"
+                    class="absolute bottom-3 right-3 z-10 bg-black/70 px-3 py-1 rounded text-sm hidden">
+                    <span class="text-teal-400 voice-active">🔊</span> <span
+                        class="text-teal-500 text-xs">SPEAKING...</span>
                 </div>
             </div>
 
@@ -167,7 +245,8 @@
         <div class="col-span-4 border border-teal-800 rounded-lg p-3 flex flex-col bg-black/30">
             <div class="flex justify-between items-center mb-2 border-b border-teal-900 pb-2">
                 <h2 class="text-sm text-teal-600 tracking-wider">AGENT REASONING CHAIN</h2>
-                <div id="status-badge" class="text-xs px-2 py-1 rounded bg-green-900/30 text-green-400 border border-green-900/50">
+                <div id="status-badge"
+                    class="text-xs px-2 py-1 rounded bg-green-900/30 text-green-400 border border-green-900/50">
                     SAFE
                 </div>
             </div>
@@ -195,16 +274,20 @@
             <!-- Tab bar: Decision Log / Raw JSON -->
             <div class="flex justify-between items-center mb-2 border-b border-teal-900 pb-2">
                 <div class="flex items-center gap-3">
-                    <button id="tab-decisions" onclick="switchTab('decisions')" class="text-sm text-teal-400 tracking-wider border-b border-teal-400 pb-0.5">
+                    <button id="tab-decisions" onclick="switchTab('decisions')"
+                        class="text-sm text-teal-400 tracking-wider border-b border-teal-400 pb-0.5">
                         DECISION LOG
                     </button>
-                    <button id="tab-raw" onclick="switchTab('raw')" class="text-sm text-teal-700 tracking-wider hover:text-teal-500 pb-0.5">
+                    <button id="tab-raw" onclick="switchTab('raw')"
+                        class="text-sm text-teal-700 tracking-wider hover:text-teal-500 pb-0.5">
                         RAW JSON
                     </button>
-                    <span id="entry-count" class="text-[10px] bg-teal-900/40 text-teal-500 px-1.5 py-0.5 rounded">0</span>
+                    <span id="entry-count"
+                        class="text-[10px] bg-teal-900/40 text-teal-500 px-1.5 py-0.5 rounded">0</span>
                 </div>
                 <div class="flex gap-2">
-                    <div id="ws-status" class="text-[10px] px-2 py-0.5 rounded bg-yellow-900/30 text-yellow-500 border border-yellow-900/50">
+                    <div id="ws-status"
+                        class="text-[10px] px-2 py-0.5 rounded bg-yellow-900/30 text-yellow-500 border border-yellow-900/50">
                         CONNECTING...
                     </div>
                 </div>
@@ -212,12 +295,17 @@
 
             <!-- Filter buttons (visible in decisions tab) -->
             <div id="filter-bar" class="flex gap-1.5 mb-2">
-                <button onclick="filterDecisions('all')" class="filter-btn active text-[10px] px-2 py-0.5 rounded border border-teal-900 text-teal-600 hover:text-teal-400 transition-colors">ALL</button>
-                <button onclick="filterDecisions('critical')" class="filter-btn text-[10px] px-2 py-0.5 rounded border border-red-900/50 text-red-700 hover:text-red-400 transition-colors">CRITICAL</button>
-                <button onclick="filterDecisions('caution')" class="filter-btn text-[10px] px-2 py-0.5 rounded border border-yellow-900/50 text-yellow-700 hover:text-yellow-400 transition-colors">CAUTION</button>
-                <button onclick="filterDecisions('safe')" class="filter-btn text-[10px] px-2 py-0.5 rounded border border-green-900/50 text-green-700 hover:text-green-400 transition-colors">SAFE</button>
+                <button onclick="filterDecisions('all')"
+                    class="filter-btn active text-[10px] px-2 py-0.5 rounded border border-teal-900 text-teal-600 hover:text-teal-400 transition-colors">ALL</button>
+                <button onclick="filterDecisions('critical')"
+                    class="filter-btn text-[10px] px-2 py-0.5 rounded border border-red-900/50 text-red-700 hover:text-red-400 transition-colors">CRITICAL</button>
+                <button onclick="filterDecisions('caution')"
+                    class="filter-btn text-[10px] px-2 py-0.5 rounded border border-yellow-900/50 text-yellow-700 hover:text-yellow-400 transition-colors">CAUTION</button>
+                <button onclick="filterDecisions('safe')"
+                    class="filter-btn text-[10px] px-2 py-0.5 rounded border border-green-900/50 text-green-700 hover:text-green-400 transition-colors">SAFE</button>
                 <div class="flex-1"></div>
-                <button onclick="clearDecisionLog()" class="text-[10px] text-teal-700 hover:text-teal-400 border border-teal-900 px-2 py-0.5 rounded transition-colors">CLEAR</button>
+                <button onclick="clearDecisionLog()"
+                    class="text-[10px] text-teal-700 hover:text-teal-400 border border-teal-900 px-2 py-0.5 rounded transition-colors">CLEAR</button>
             </div>
 
             <!-- Decision Log (visible by default) -->
@@ -281,10 +369,10 @@
 
         function speak(text) {
             if (!voiceEnabled || !synth) return;
-            
+
             // Cancel any ongoing speech
             synth.cancel();
-            
+
             const utterance = new SpeechSynthesisUtterance(text);
             utterance.rate = 1.1;     // Slightly faster for urgency
             utterance.pitch = 0.9;    // Lower pitch for industrial feel
@@ -691,4 +779,5 @@
         connectWebSocket();
     </script>
 </body>
+
 </html>
