@@ -22,7 +22,7 @@ load_dotenv()
 
 # ─── Config from .env ────────────────────────────────────────────────────────
 VISION_MODEL = os.getenv("VISION_MODEL", "google/gemma-3n-E4B-it")
-ACTION_MODEL = os.getenv("ACTION_MODEL", "google/gemma-2-270m-it")
+ACTION_MODEL = os.getenv("ACTION_MODEL", "google/gemma-2-2b-it")
 DEVICE_MAP   = os.getenv("DEVICE_MAP", "auto")
 LOAD_IN_4BIT = os.getenv("LOAD_IN_4BIT", "true").lower() == "true"
 
@@ -74,7 +74,7 @@ class AutonomousForkliftAgent:
         )
         logger.info("[INIT] Vision model loaded ✓")
 
-        # ── 2. Load FunctionGemma 270M (Agentic Tool Caller) ────────────
+        # ── 2. Load Gemma 2 2B (Agentic Tool Caller) ────────────────────
         logger.info(f"[INIT] Loading action model: {ACTION_MODEL}...")
         self.action_processor = AutoProcessor.from_pretrained(ACTION_MODEL)
         self.action_model = AutoModelForCausalLM.from_pretrained(
