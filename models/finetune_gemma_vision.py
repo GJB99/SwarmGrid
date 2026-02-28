@@ -389,7 +389,7 @@ def finetune(base_pairs: list, demo_train_pairs: list, demo_val_pairs: list):
           f"— base weight: 1.0  demo weight: {DEMO_WEIGHT}...")
     trainer = SFTTrainer(
         model            = model,
-        tokenizer        = processor.tokenizer,
+        processing_class = processor.tokenizer,
         train_dataset    = hf_train,
         eval_dataset     = hf_val,
         data_collator    = collate_fn,
