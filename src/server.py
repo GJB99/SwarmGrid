@@ -218,9 +218,10 @@ async def agent_telemetry(websocket: WebSocket):
 
             # Run AI agent every N frames (configured via AGENT_FRAME_INTERVAL in .env)
             if frame_count % _FRAME_INTERVAL == 0:
-                # Convert OpenCV BGR → PIL RGB
+                # Convert OpenCV BGR → PIL RGB and aggressive downscale to speed up Vision Model pre-fill
                 rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                pil_img = Image.fromarray(rgb_frame)
+                # Resize to 448x448 (optimal for SigLIP/Vision Encoders) to slash visual token count
+                pil_img = Image.fromarray(rgb_frame).resize((448, 448))
 
                 # Run inference in thread pool so async event loop stays alive
                 # We use a Lock to ensure only one inference runs at a time on the GPU

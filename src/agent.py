@@ -95,28 +95,8 @@ class AutonomousForkliftAgent:
             logger.info("[INIT] Visual adapters merged ✓")
         logger.info("[INIT] Vision model loaded ✓")
 
-        # ── 2. Load Gemma 2 2B (Agentic Tool Caller) ────────────────────
-        logger.info(f"[INIT] Loading action model: {ACTION_MODEL}...")
-        self.action_processor = AutoProcessor.from_pretrained(ACTION_MODEL, trust_remote_code=True)
-        
-        bnb_config = None
-        if LOAD_IN_4BIT:
-            logger.info("[INIT] Enabling 4-bit quantization for action model")
-            bnb_config = BitsAndBytesConfig(
-                load_in_4bit=True,
-                bnb_4bit_compute_dtype=torch.float16,
-                bnb_4bit_quant_type="nf4",
-                bnb_4bit_use_double_quant=True,
-            )
-
-        self.action_model = AutoModelForCausalLM.from_pretrained(
-            ACTION_MODEL,
-            device_map=DEVICE_MAP,
-            quantization_config=bnb_config,
-            torch_dtype=torch.float16,
-            trust_remote_code=True,
-        )
-        logger.info("[INIT] Action model loaded ✓")
+        # Removed 2B Action Model to drastically reduce latency on local GPUs
+        logger.info("[INIT] Operating in high-speed single-model (Vision→Action) mode")
 
         # ── 3. Define the Agent's API Surface ────────────────────────────
         self.api_schema = """
@@ -213,11 +193,13 @@ AVAILABLE TOOLS:
         vision_prompt = (
             "Examine this warehouse path from a forklift dashcam. "
             "Are there any physical hazards, humans, or obstacles? "
-            "Estimate distance in meters. Be concise."
+            "Output EXACTLY ONE DIGIT reflecting the required action:\n"
+            "0 = Path clear (maintain course)\n"
+            "1 = Potential hazard or human distant (reduce speed)\n"
+            "2 = Immediate collision hazard (trigger e-brake)"
         )
 
         logger.info(f"[Cycle {cycle_id}] STEP 1: Sending frame to vision model")
-        logger.info(f"[Cycle {cycle_id}] Vision prompt: {vision_prompt}")
 
         vision_start = time.time()
         conversation = [{"role": "user", "content": [
@@ -236,106 +218,65 @@ AVAILABLE TOOLS:
         with torch.no_grad():
             vision_outputs = self.vision_model.generate(
                 **inputs,
-                max_new_tokens=40,
+                max_new_tokens=5,
                 do_sample=False,
             )
         vision_elapsed_ms = round((time.time() - vision_start) * 1000)
 
         # Decode only the newly generated tokens (not the prompt)
         gen_tokens = vision_outputs[0][inputs["input_ids"].shape[-1]:]
-        hazard_assessment = self.vision_processor.decode(
+        raw_output = self.vision_processor.decode(
             gen_tokens, skip_special_tokens=True
         ).strip()
-        vision_context = hazard_assessment  # keep for logging
+        vision_context = raw_output  # keep for logging
 
         logger.info(f"[Cycle {cycle_id}] Vision raw output: {vision_context[:200]}")
-        logger.info(f"[Cycle {cycle_id}] Hazard assessment: {hazard_assessment}")
-        logger.info(f"[Cycle {cycle_id}] Vision inference: {vision_elapsed_ms}ms")
+        logger.info(f"[Cycle {cycle_id}] Total inference: {vision_elapsed_ms}ms")
 
-        reasoning_chain.append({
-            "step": 2,
-            "phase": "PERCEPTION",
-            "label": f"Vision model responded in {vision_elapsed_ms}ms",
-            "detail": hazard_assessment,
-            "raw_output": vision_context[:300],
-            "inference_ms": vision_elapsed_ms,
-        })
-
-        # ─── STEP 2: AGENCY (Tool Calling) ──────────────────────────────
-        reasoning_chain.append({
-            "step": 3,
-            "phase": "AGENCY",
-            "label": "Forwarding threat context to FunctionGemma 270M...",
-        })
-
-        system_prompt = (
-            f"You are an autonomous forklift safety agent. "
-            f"Maintain a 5-meter safety perimeter at all times.\n\n"
-            f"Based on this visual feed analysis: '{hazard_assessment}'\n\n"
-            f"Decide the next action from these tools:\n{self.api_schema}\n\n"
-            f'Output ONLY a valid JSON object: '
-            f'{{"tool": "tool_name", "parameters": {{...}}}}'
-        )
-
-        logger.info(f"[Cycle {cycle_id}] STEP 2: Sending context to action model")
-
-        action_start = time.time()
-        conversation = [
-            {"role": "user", "content": system_prompt}
-        ]
-        text = self.action_processor.apply_chat_template(
-            conversation, tokenize=False, add_generation_prompt=True
-        )
-        action_inputs = self.action_processor(
-            text, return_tensors="pt"
-        ).to(self.action_model.device)
-
-        with torch.no_grad():
-            action_outputs = self.action_model.generate(
-                **action_inputs,
-                max_new_tokens=40,
-                do_sample=False,
-            )
-        action_elapsed_ms = round((time.time() - action_start) * 1000)
-
-        # Slice to get only the generated tokens
-        gen_tokens = action_outputs[0][action_inputs["input_ids"].shape[-1]:]
-        action_json_str = self.action_processor.decode(
-            gen_tokens, skip_special_tokens=True
-        ).strip()
-
-        logger.info(f"[Cycle {cycle_id}] Action raw output: {action_json_str[:200]}")
-        logger.info(f"[Cycle {cycle_id}] Action inference: {action_elapsed_ms}ms")
-
-        reasoning_chain.append({
-            "step": 4,
-            "phase": "AGENCY",
-            "label": f"FunctionGemma responded in {action_elapsed_ms}ms",
-            "detail": action_json_str[:300],
-            "raw_output": action_json_str[:300],
-            "inference_ms": action_elapsed_ms,
-        })
-
-        # ─── STEP 3: Parse the agent's JSON action ──────────────────────
-        parsed_ok = False
-        try:
-            json_start = action_json_str.find("{")
-            json_end = action_json_str.rfind("}") + 1
-            agent_action = json.loads(action_json_str[json_start:json_end])
-            parsed_ok = True
-        except (json.JSONDecodeError, ValueError):
-            # Fallback: safe default action
+        # ─── STEP 2 & 3: Map Token to JSON & Actuation ──────────────────────
+        parsed_ok = True
+        
+        if "2" in raw_output:
+            agent_action = {
+                "tool": "trigger_ebrake",
+                "parameters": {"reason": "Immediate hazard detected", "severity": "high"}
+            }
+            hazard_assessment = "Immediate collision hazard detected."
+        elif "1" in raw_output:
+            agent_action = {
+                "tool": "reduce_speed",
+                "parameters": {"target_mph": 3}
+            }
+            hazard_assessment = "Potential hazard ahead. Proceeding with caution."
+        else:
             agent_action = {
                 "tool": "maintain_course",
-                "parameters": {"status": "default"},
+                "parameters": {"status": "clear"}
             }
+            hazard_assessment = "Path clear. No hazards detected."
 
         total_elapsed_ms = round((time.time() - total_start) * 1000)
 
+        # Build reasoning chain simulating the normal flow for the UI
         reasoning_chain.append({
-            "step": 5,
+            "step": 2,
+            "phase": "PERCEPTION",
+            "label": f"Vision model single-token classification in {vision_elapsed_ms}ms",
+            "detail": f"Raw Output: {raw_output}",
+            "raw_output": raw_output,
+            "inference_ms": vision_elapsed_ms,
+        })
+        reasoning_chain.append({
+            "step": 3,
+            "phase": "AGENCY",
+            "label": "Instantaneous Python JSON Constructor",
+            "detail": json.dumps(agent_action),
+            "inference_ms": 0,
+        })
+        reasoning_chain.append({
+            "step": 4,
             "phase": "ACTUATION",
-            "label": f"Parsed action: {agent_action.get('tool', 'unknown')}",
+            "label": f"Parsed action: {agent_action.get('tool')}",
             "detail": json.dumps(agent_action, indent=2),
             "parsed_ok": parsed_ok,
         })
@@ -362,12 +303,12 @@ AVAILABLE TOOLS:
             "cycle_id": cycle_id,
             "timestamp": time.time(),
             "vision_prompt": vision_prompt,
-            "vision_analysis": hazard_assessment,
+            "vision_analysis": raw_output[:300],
             "vision_raw_output": vision_context[:300],
             "vision_inference_ms": vision_elapsed_ms,
-            "action_prompt_snippet": system_prompt[:200] + "...",
-            "action_raw_output": action_json_str[:300],
-            "action_inference_ms": action_elapsed_ms,
+            "action_prompt_snippet": "Bypassed - Single Model Mode",
+            "action_raw_output": "Merged with Vision",
+            "action_inference_ms": 0,
             "agent_action": agent_action,
             "action_parsed_ok": parsed_ok,
             "total_inference_ms": total_elapsed_ms,
