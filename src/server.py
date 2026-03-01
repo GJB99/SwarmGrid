@@ -55,17 +55,31 @@ app = FastAPI(
 # ─── Paths ───────────────────────────────────────────────────────────────────
 SRC_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(SRC_DIR)
-VIDEO_PATH = os.getenv("VIDEO_PATH") or os.path.join(PROJECT_ROOT, "data", "demo_dashcam.mp4")
-if not os.path.isabs(VIDEO_PATH):
-    VIDEO_PATH = os.path.join(PROJECT_ROOT, VIDEO_PATH)
-INDEX_PATH = os.path.join(SRC_DIR, "index.html")
+DATA_DIR = os.path.join(PROJECT_ROOT, "data")
 
 # ─── Initialize the Agent ───────────────────────────────────────────────────
 agent = AutonomousForkliftAgent()
 inference_lock = threading.Lock()
 
+# ─── Video Configuration ─────────────────────────────────────────────────────
+available_videos = []
+if os.path.exists(DATA_DIR):
+    available_videos = [f for f in os.listdir(DATA_DIR) if f.endswith(".mp4")]
+
+logger.info(f"[CONFIG] Project Root: {PROJECT_ROOT}")
+logger.info(f"[CONFIG] Data Directory: {DATA_DIR}")
+logger.info(f"[CONFIG] Found {len(available_videos)} videos: {available_videos}")
+
+default_video = available_videos[0] if available_videos else "demo_dashcam.mp4"
+
+VIDEO_PATH = os.getenv("VIDEO_PATH") or os.path.join(DATA_DIR, default_video)
+if not os.path.isabs(VIDEO_PATH):
+    VIDEO_PATH = os.path.join(PROJECT_ROOT, VIDEO_PATH)
+INDEX_PATH = os.path.join(SRC_DIR, "index.html")
+
 # Global state for dynamic video switching
 current_video_path = VIDEO_PATH
+logger.info(f"[CONFIG] Active Video Path: {current_video_path}")
 
 
 # ─── Routes ──────────────────────────────────────────────────────────────────
@@ -77,7 +91,7 @@ async def get_dashboard():
         return HTMLResponse(f.read())
 
 
-@app.get("/health")
+@app.get("/api/health")
 async def health_check():
     """Edge device health endpoint."""
     return {
@@ -150,6 +164,7 @@ def generate_video_frames():
             b"--frame\r\n"
             b"Content-Type: image/jpeg\r\n\r\n" + frame_bytes + b"\r\n"
         )
+        time.sleep(0.06)  # 0.5x speed (doubled from 0.03)
 
 
 @app.get("/video_feed")
@@ -233,8 +248,8 @@ async def agent_telemetry(websocket: WebSocket):
                 # Send full telemetry payload to the UI (includes reasoning chain + voice)
                 await websocket.send_text(json.dumps(result, default=str))
 
-            # Simulate ~30fps video playback timing
-            await asyncio.sleep(0.03)
+            # Simulate ~15fps video playback (0.5x speed)
+            await asyncio.sleep(0.06)
 
     except WebSocketDisconnect:
         print("[WS] Client disconnected from telemetry stream.")

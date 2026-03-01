@@ -787,24 +787,31 @@
         async function initVideoSelector() {
             try {
                 const res = await fetch('/api/videos');
+                if (!res.ok) throw new Error('Server starting...');
                 const data = await res.json();
                 const selector = document.getElementById('video-selector');
-                selector.innerHTML = '';
 
-                // Get current video if possible
-                const healthRes = await fetch('/api/health');
-                const healthData = await healthRes.json();
-                const current = healthData.current_video || '';
+                if (data.videos && data.videos.length > 0) {
+                    selector.innerHTML = '';
 
-                data.videos.forEach(v => {
-                    const opt = document.createElement('option');
-                    opt.value = v;
-                    opt.textContent = v.replace('.mp4', '').replace(/_/g, ' ').toUpperCase();
-                    if (v === current) opt.selected = true;
-                    selector.appendChild(opt);
-                });
+                    // Get current video if possible
+                    const healthRes = await fetch('/api/health').catch(() => null);
+                    const healthData = healthRes ? await healthRes.json().catch(() => ({})) : {};
+                    const current = healthData.current_video || '';
+
+                    data.videos.forEach(v => {
+                        const opt = document.createElement('option');
+                        opt.value = v;
+                        opt.textContent = v.replace('.mp4', '').replace(/_/g, ' ').toUpperCase();
+                        if (v === current) opt.selected = true;
+                        selector.appendChild(opt);
+                    });
+                } else {
+                    setTimeout(initVideoSelector, 2000); // Retry soon
+                }
             } catch (err) {
-                console.error('Failed to load videos:', err);
+                console.log('Waiting for model initialization...', err);
+                setTimeout(initVideoSelector, 3000); // Retry with backoff
             }
         }
 

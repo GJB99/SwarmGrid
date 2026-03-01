@@ -11,6 +11,7 @@ Every inference cycle produces a full reasoning chain visible to the UI.
 
 import torch
 from transformers import AutoProcessor, AutoModelForImageTextToText, AutoModelForCausalLM, BitsAndBytesConfig
+from peft import PeftModel
 from PIL import Image
 import json
 import os
@@ -22,9 +23,10 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # ─── Config from .env ────────────────────────────────────────────────────────
-VISION_MODEL = os.getenv("VISION_MODEL", "google/gemma-3n-E4B-it")
-ACTION_MODEL = os.getenv("ACTION_MODEL", "google/gemma-2-2b-it")
-DEVICE_MAP   = os.getenv("DEVICE_MAP", "auto")
+VISION_MODEL         = os.getenv("VISION_MODEL", "google/gemma-3n-E4B-it")
+VISION_MODEL_ADAPTER = os.getenv("VISION_MODEL_ADAPTER")
+ACTION_MODEL         = os.getenv("ACTION_MODEL", "google/gemma-2-2b-it")
+DEVICE_MAP   = {"": 0} # Force to GPU 0 to avoid CPU offload crash
 LOAD_IN_4BIT = os.getenv("LOAD_IN_4BIT", "true").lower() == "true"
 MOCK_AGENT   = os.getenv("MOCK_AGENT", "false").lower() == "true"
 
@@ -80,16 +82,39 @@ class AutonomousForkliftAgent:
             VISION_MODEL,
             device_map=DEVICE_MAP,
             torch_dtype=torch.bfloat16,
+            trust_remote_code=True,
         )
+        
+        # ── 1.1 Apply Fine-Tuned Adapters (LoRA) if available ──────────
+        if VISION_MODEL_ADAPTER and os.path.exists(VISION_MODEL_ADAPTER):
+            logger.info(f"[INIT] Applying fine-tuned adapters from: {VISION_MODEL_ADAPTER}")
+            self.vision_model = PeftModel.from_pretrained(
+                self.vision_model, 
+                VISION_MODEL_ADAPTER
+            )
+            logger.info("[INIT] Visual adapters merged ✓")
         logger.info("[INIT] Vision model loaded ✓")
 
         # ── 2. Load Gemma 2 2B (Agentic Tool Caller) ────────────────────
         logger.info(f"[INIT] Loading action model: {ACTION_MODEL}...")
-        self.action_processor = AutoProcessor.from_pretrained(ACTION_MODEL)
+        self.action_processor = AutoProcessor.from_pretrained(ACTION_MODEL, trust_remote_code=True)
+        
+        bnb_config = None
+        if LOAD_IN_4BIT:
+            logger.info("[INIT] Enabling 4-bit quantization for action model")
+            bnb_config = BitsAndBytesConfig(
+                load_in_4bit=True,
+                bnb_4bit_compute_dtype=torch.float16,
+                bnb_4bit_quant_type="nf4",
+                bnb_4bit_use_double_quant=True,
+            )
+
         self.action_model = AutoModelForCausalLM.from_pretrained(
             ACTION_MODEL,
             device_map=DEVICE_MAP,
+            quantization_config=bnb_config,
             torch_dtype=torch.float16,
+            trust_remote_code=True,
         )
         logger.info("[INIT] Action model loaded ✓")
 
@@ -211,7 +236,7 @@ AVAILABLE TOOLS:
         with torch.no_grad():
             vision_outputs = self.vision_model.generate(
                 **inputs,
-                max_new_tokens=80,
+                max_new_tokens=40,
                 do_sample=False,
             )
         vision_elapsed_ms = round((time.time() - vision_start) * 1000)
@@ -268,9 +293,8 @@ AVAILABLE TOOLS:
         with torch.no_grad():
             action_outputs = self.action_model.generate(
                 **action_inputs,
-                max_new_tokens=100,
-                do_sample=True,
-                temperature=0.1,
+                max_new_tokens=40,
+                do_sample=False,
             )
         action_elapsed_ms = round((time.time() - action_start) * 1000)
 
